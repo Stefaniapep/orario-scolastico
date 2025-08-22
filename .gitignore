@@ -1,0 +1,23 @@
+# .gitignore per progetto Generatore Orario Classi e Docenti
+
+
+# File Python compilati
+
+**pycache**/
+\*.pyc
+\*.pyo
+\*.pyd
+
+# Configurazioni di sistema
+
+.DS\_Store
+Thumbs.db
+
+# Logs
+
+\*.log
+
+# File temporanei
+
+\*.tmp
+\*.bak
