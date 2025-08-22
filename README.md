@@ -1,21 +1,19 @@
 # 📘 Generatore Orario Classi e Docenti
 
-Genera automaticamente gli orari settimanali per un insieme di classi e li assegna a un gruppo di docenti, rispettando i vincoli di:
+Genera automaticamente gli orari settimanali per un insieme di classi e li assegna a un gruppo di docenti, rispettando i vincoli:
 
-* Materie da insegnare e numero di ore settimanali per materia.
-* Ogni classe ha assegnato sempre lo stesso docente per materia.
-* Ogni giorno nelle classi ci devono essere almeno due materie diverse.
-* Ogni giorno le ore di una stessa materia sono consecutive.
-* Ogni docente lavora un max di ore lavorative settimanali (lezioni in classe + coperture generiche).
-* Ogni docente ha almeno una giornata libera (nessuna lezione e nessuna copertura).
-* Ogni docente può insegnare un diverso insieme di materie
-* Identificazione delle ore di **BUCO** degli insegnanti (ore di non lezione e non copertura fra una lezione e l'altra).
+* Slot orari delle classi sono variabili e devono sempre essere assegnati ad un docente.
+* Ogni giorno nelle classi ci devono essere almeno due docenti diversi.
+* Ogni giorno le ore di uno stesso docente sono consecutive.
+* Ogni docente lavora un max di ore lavorative settimanali (lezioni in classe + coperture).
+* Ogni docente ha le sue assegnazioni predefinite
+* Identificazione delle ore di buco degli insegnanti (ore di non lezione e non copertura fra una lezione e l'altra).
 
 Il risultato viene esportato in un file Excel (`.xlsx`) :
 
 Foglio **Classi**
 
-* **Colonne:** le classi (`1A, 1B, 2A, …, coopertura`).
+* **Colonne:** le classi (`1A, 1B, 2A, …, coopertura, buco` ).
 * **Righe:** slot orari (`Lun1 … Ven5`) con un colore diverso per giorno della settimana.
 * **Valori:** materia assegnata in quell’ora (es. `MAT (Doc1), ITA(Doc3), ...`).
 
@@ -25,31 +23,51 @@ Foglio **Docenti**
 * **Righe:** slot orari (`Lun1 … Ven5`) con un colore diverso per giorno della settimana.
 * **Valori:**
   * `MAT (1A)` → insegna matematica in 1A.
-  * `BUCO` → ora vuota tra due lezioni nello stesso giorno.
+  * `buco` → ora vuota tra due lezioni nello stesso giorno.
   * `coopertura` → ora di copertura per completare le 22 ore.
-  * `giorno_libero` → giorno libero o nessuna attività in quell’ora.
 
 # I dati personalizzabili:
 
 CLASSI = ["1A", "1B", "2A", "2B", "3A", "3B", "4A", "4B", "5A"]
-MATERIE = ["REL", "ING", "MAT", "ITA", "MOT"]
-ORE_SETTIMANALI = {"REL": 2, "MOT": 2, "ING": 3, "MAT": 10, "ITA": 10}
-GIORNI = {"LUN", "MAR", "MER", "GIO", "VEN" }
-ORE_PER_GIORNATE = {"LUN":6, "MAR":6, "MER":6, "GIO":6, "VEN":5 }
-ORE_DOCENTE = 22
-GIORNATE_LIBERE = 1
-DOCENTI = {
-    "Doc1": ["MAT"],
-    "Doc2": ["MAT"],
-    "Doc3": ["MAT"],
-    "Doc4": ["MAT"],
-    "Doc5": ["ITA"],
-    "Doc6": ["ITA"],
-    "Doc7": ["ITA"],
-    "Doc9": ["ING"],
-    "Doc10": ["REL"],
-    "Doc11": ["MOT"],
-    "Doc12": ["MAT", "ITA", "ING", "REL", "MOT"],
+
+GIORNI = ["LUN", "MAR", "MER", "GIO", "VEN" ]
+
+ORE_SETTIMANALI_DOCENTE = 22
+ORE_SETTIMANALI_CLASSE = 27
+
+DOCENTI = [ "ANGELINI", "DOCENTE1", "SABATELLI", "SCHIAVONE", “CICCIMARRA”, "MARANGI", "SIMEONE", 	"PEPE", "PALMISANO", "ZIZZI", "DOCENTE2", "MOTORIA”, "LEO", "SAVINO"]
+
+SLOT_1 = {"8:00-9:00","9:00-10:00","10:00-11:00","11:00-12:00","12:00-13:00","13:00-13:30"}
+SLOT_2 = {"8:00-9:00","9:00-10:00","10:00-11:00","11:00-12:00","12:00-13:00","13:00-13:30"}
+SLOT_3 = {"8:00-9:00","9:00-10:00","10:00-11:00","11:00-12:00","12:00-13:00"}
+
+ASSEGNAZIONE_SLOT = {
+	"1A": { "LUN":"SLOT_1", "MAR":"SLOT_1", "MER":"SLOT_1", "GIO":"SLOT_1", "VEN":"SLOT_3" },
+	"1B": { "LUN":"SLOT_1", "MAR":"SLOT_1", "MER":"SLOT_1", "GIO":"SLOT_1", "VEN":"SLOT_3" },
+	"2A": { "LUN":"SLOT_1", "MAR":"SLOT_1", "MER":"SLOT_1", "GIO":"SLOT_1", "VEN":"SLOT_3" },
+	 "2B": { "LUN":"SLOT_1", "MAR":"SLOT_1", "MER":"SLOT_1", "GIO":"SLOT_1", "VEN":"SLOT_3" },
+	"3A": { "LUN":"SLOT_1", "MAR":"SLOT_1", "MER":"SLOT_1", "GIO":"SLOT_1", "VEN":"SLOT_3" },
+	"3B": { "LUN":"SLOT_1", "MAR":"SLOT_1", "MER":"SLOT_1", "GIO":"SLOT_1", "VEN":"SLOT_3" },
+	"4A":{ "LUN":"SLOT_2", "MAR":"SLOT_2", "MER":"SLOT_2", "GIO":"SLOT_2", "VEN":"SLOT_3" },
+	"4B":{ "LUN":"SLOT_2", "MAR":"SLOT_2", "MER":"SLOT_2", "GIO":"SLOT_2", "VEN":"SLOT_3" },
+	"5A":{ "LUN":"SLOT_2", "MAR":"SLOT_2", "MER":"SLOT_2", "GIO":"SLOT_2", "VEN":"SLOT_3" },
+}
+
+ASSEGNAZIONE_DOCENTI = {
+	"ANGELINI"= {"1A”: 11, "1B”:11},
+	"DOCENTE1"= {"1A”: 11, "1B”:11},
+	"SABATELLI"= {"2A”: 9, "2B”:9, “copertura”:4},
+	"SCHIAVONE"= {"2A”: 11, "2B”:11},
+	“CICCIMARRA”= {"2A”: 3, "2B”:3, “copertura”:6},
+	"MARANGI"= {"3A”: 10, "3B”:10, “copertura”:2},
+	"SIMEONE"= {"3A”: 11, "3B”:11},
+	"PEPE"= {"4A”: 8, "4B”:8, “copertura”:6},
+	"PALMISANO"= {"4A”: 10, "4B”:10, “copertura”:2},
+	"ZIZZI"= {"5A”: 11, "5B”:11},
+	"DOCENTE2"= {"5A”: 3, "5B”:3, "4A”: 4, "4B”:4},
+	"MOTORIA”= {"5A”: 2, "5B”:2, "4A”: 2, "4B”:2},
+	"LEO"= {"1A”: 2, "1B”:2, "2A”: 2, "2B”:2 "3A”: 2, "3B”:2, "4A”: 2 "4B”:2, "5A”: 2, "5B”:2},
+	"SAVINO"= {"1A”: 2,  "1B”:2, "2A”: 2,  "2B”:2 "3A”: 2, "3B”:2, "4A”: 2, "4B”:2},
 }
 
 ---
@@ -100,7 +118,58 @@ Al termine verrà generato il file `orario_settimanale.xlsx` nella cartella corr
 
 ---
 
-## ✅ Esempio di output
+## 🛠️ Implementazione (sintesi)
+
+Lo script principale è `genera_orario.py`. Di seguito una panoramica sintetica dell'implementazione e dei requisiti effettivamente soddisfatti.
+
+- Approccio generale
+  - I tempi sono gestiti in minuti (1h = 60 min, 0.5h = 30 min) per calcolare somme esatte anche con slot da 30 minuti.
+  - Per ogni classe lo script costruisce la lista degli slot disponibili (in base a `ASSEGNAZIONE_SLOT`) e seleziona un sottoinsieme di slot la cui somma in minuti è pari al target settimanale (o, se non possibile, alla somma massima <= target) usando un semplice algoritmo di subset-sum.
+  - L'assegnazione ai docenti utilizza un'euristica in più passate:
+    1. Prima passata: tenta di soddisfare le quote esplicite in `ASSEGNAZIONE_DOCENTI` piazzando blocchi contigui.
+    2. Seconda passata: riempie i blocchi liberi privilegiando la consecutività e i docenti con capacità residua.
+    3. Terza passata: assegna singoli slot rimasti.
+    4. Passata finale: tenta di ottenere (quando possibile) almeno 2 docenti distinti per classe per giornata tramite riassegnazioni (se compatibile con gli altri vincoli).
+  - Uso di seed casuale (basato su os.urandom + timestamp) per garantire che ogni run produca un'orario diverso.
+
+- Vincoli applicati e controlli
+  - Conversione dei vincoli di ore in minuti per conti precisi (ore settimanali docente e classe).
+  - Nessuna ora di lezione rimane non assegnata: tutti gli slot scelti per la classe vengono assegnati a un docente.
+  - Nessun blocco continuo di lezioni per lo stesso docente supera 4 ore consecutive (vincolo verificato prima di ogni assegnazione; lo script tenta riassegnazioni per rispettarlo).
+  - Il totale ore settimanali per docente è rispettato ove possibile; eventuali superamenti sono segnalati nel report.
+  - Le ore di "copertura" (quando un docente insegna in una classe non prevista nella sua mappa) sono segnate e riportate nel foglio `Classi` (colonna `coopertura`).
+  - I "buchi" per docente (slot mancanti tra prima e ultima lezione dello stesso giorno) sono identificati e riportati:
+    - nel foglio `Docenti` tramite la stringa `buco` sulle celle corrispondenti;
+    - nel foglio `Classi` nella colonna `buco` viene elencato il/i docente/i che hanno un buco su quello slot.
+
+- Output
+  - Excel `orario_settimanale.xlsx` con due fogli:
+    - `Classi`: colonne per ciascuna classe e colonne aggiuntive `coopertura` e `buco`.
+    - `Docenti`: colonne per ciascun docente; le celle contengono la classe insegnata o `buco` quando presente.
+  - Report stampato in console che:
+    - mostra per ogni classe i minuti assegnati e il delta rispetto al target (in minuti e ore);
+    - mostra per ogni docente i minuti assegnati, il delta rispetto al limite settimanale;
+    - elenca i buchi identificati (non considerati violazioni automatiche);
+    - riepiloga le violazioni di somma (solo mismatch totali e docenti oltre il limite).
+
+- Requisiti soddisfatti
+  - Gestione di slot variabili (30/60 min) e calcolo preciso delle ore in minuti.
+  - Esportazione in Excel con fogli `Classi` e `Docenti` e colonne `coopertura`/`buco` richieste.
+  - Ogni run genera un'assegnazione differente (seed casuale).
+  - Identificazione e marcatura dei buchi degli insegnanti.
+  - Tentativo di garantire almeno due docenti diversi per classe al giorno (quando possibile).
+  - Rispetto del limite di 4 ore consecutive per docente.
+
+- Limitazioni note
+  - L'algoritmo è euristico: in scenari molto vincolati (poche risorse o conflitti) lo script può non riuscire a soddisfare simultaneamente tutti i vincoli; i mismatch totali vengono segnalati nel report.
+  - La definizione di "copertura" è approssimativa e derivata dalla mappa `ASSEGNAZIONE_DOCENTI` (se il docente svolge ora in una classe non prevista nella sua mappa, quella ora è marcata come copertura).
+  - La garanzia che ogni classe abbia esattamente le ore target è tentata tramite subset-sum; se non è possibile con gli slot disponibili viene scelta la migliore combinazione <= target e la discrepanza è segnalata.
+
+- Esecuzione
+  - Installare dipendenze: `python -m pip install -r requirements.txt` (pandas, openpyxl, ortools opzionale)
+  - Eseguire: `python genera_orario.py` (il report verrà stampato in console; l'excel verrà salvato in `orario_settimanale.xlsx`).
+
+---
 
 ### 📊 Foglio Classi (estratto)
 
