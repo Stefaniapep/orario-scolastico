@@ -1,511 +1,621 @@
 #!/usr/bin/env python3
 """
-genera_orario.py
-Genera automaticamente orari settimanali per classi e docenti e li esporta in Excel.
-Requisiti implementati (approssimazione euristica):
-- Ogni classe riceve le ore settimanali per materia definite in ORE_SETTIMANALI.
-- Per ogni classe, ogni materia ha un docente unico (scelto tra DOCENTI disponibili per la materia).
-- Ogni giorno nelle classi ci sono almeno due materie diverse (tentativo con shuffle ripetuto).
-- Ogni docente ha una giornata libera (preventivamente riservata) e non viene assegnato in quella giornata.
-- Ogni docente lavora al massimo ORE_DOCENTE ore; se dopo l'assegnazione delle lezioni ha meno ore, vengono assegnate ore di "coopertura" su slot liberi (se possibile).
-- Vengono identificate le ore di BUCO (tra due lezioni nello stesso giorno, senza copertura).
+Generatore di orario settimanale per classi e docenti.
+- Esporta `orario_settimanale.xlsx` con fogli `Classi` e `Docenti`.
+- Produce un report testuale in `reports/report_YYYYMMDD_HHMMSS.txt` con vincoli verificati e violazioni.
+- Ogni esecuzione produce un'assegnazione diversa (seed casuale legato al tempo).
 
-Nota: lo script usa una strategia euristica con backtracking per assegnare i docenti alle materie per classe rispettando i vincoli di conflitto.
+Nota: questo script implementa una euristica che tenta di rispettare i vincoli del README.
 """
 
+import os
 import random
-import itertools
-from collections import defaultdict, Counter
+import datetime
+from collections import defaultdict
 import pandas as pd
 from openpyxl import load_workbook
-from openpyxl.styles import PatternFill, Alignment
-from openpyxl.utils import get_column_letter
+from openpyxl.styles import PatternFill
 
-# ---------------------- DATI PERSONALIZZABILI ----------------------
+# -----------------------------
+# Parametri e dati (da README)
+# -----------------------------
 CLASSI = ["1A", "1B", "2A", "2B", "3A", "3B", "4A", "4B", "5A"]
-MATERIE = ["REL", "ING", "MAT", "ITA", "MOT"]
-ORE_SETTIMANALI = {"REL": 2, "MOT": 2, "ING": 3, "MAT": 11, "ITA": 11}
 GIORNI = ["LUN", "MAR", "MER", "GIO", "VEN"]
-ORE_PER_GIORNATE = {"LUN":6, "MAR":6, "MER":6, "GIO":6, "VEN":5 }
-ORE_DOCENTE = 22
-GIORNATE_LIBERE = 1
-DOCENTI = {
-    "Doc1": ["MAT"],
-    "Doc2": ["MAT"],
-    "Doc3": ["MAT"],
-    "Doc4": ["MAT"],
-    "Doc5": ["ITA"],
-    "Doc6": ["ITA"],
-    "Doc7": ["ITA"],
-    "Doc8": ["ITA"],
-    "Doc9": ["ING"],
-    "Doc10": ["REL"],
-    "Doc11": ["MOT"],
-    "Doc12": ["MAT", "ITA", "ING", "REL", "MOT"],
-    "Doc13": ["MAT", "ITA", "ING", "REL", "MOT"],
-    "Doc14": ["MAT", "ITA", "ING", "REL", "MOT"],
-    "Doc15": ["MAT", "ITA"],
-    "Doc16": ["MAT", "ING"],
-    "Doc17": ["ITA", "ING"],
-    "Doc18": ["REL", "MOT"],
-    "Doc19": ["MAT", "ITA", "REL"],
-    "Doc20": ["MAT", "ITA", "ING"],
+ORE_SETTIMANALI_DOCENTE = 22
+ORE_SETTIMANALI_CLASSE = 27
+# converti in minuti per conti precisi (60 min = 1h, 30 min = 0.5h)
+ORE_SETTIMANALI_DOCENTE_MIN = ORE_SETTIMANALI_DOCENTE * 60
+ORE_SETTIMANALI_CLASSE_MIN = ORE_SETTIMANALI_CLASSE * 60
+
+# slot template (ordine matters)
+SLOT_1 = ["8:00-9:00","9:00-10:00","10:00-11:00","11:00-12:00","12:00-13:00","13:00-13:30"]
+SLOT_2 = ["8:00-9:00","9:00-10:00","10:00-11:00","11:00-12:00","12:00-13:00","13:00-13:30"]
+SLOT_3 = ["8:00-9:00","9:00-10:00","10:00-11:00","11:00-12:00","12:00-13:00"]
+
+ASSEGNAZIONE_SLOT = {
+    "1A": { "LUN":"SLOT_1", "MAR":"SLOT_1", "MER":"SLOT_1", "GIO":"SLOT_1", "VEN":"SLOT_3" },
+    "1B": { "LUN":"SLOT_1", "MAR":"SLOT_1", "MER":"SLOT_1", "GIO":"SLOT_1", "VEN":"SLOT_3" },
+    "2A": { "LUN":"SLOT_1", "MAR":"SLOT_1", "MER":"SLOT_1", "GIO":"SLOT_1", "VEN":"SLOT_3" },
+    "2B": { "LUN":"SLOT_1", "MAR":"SLOT_1", "MER":"SLOT_1", "GIO":"SLOT_1", "VEN":"SLOT_3" },
+    "3A": { "LUN":"SLOT_1", "MAR":"SLOT_1", "MER":"SLOT_1", "GIO":"SLOT_1", "VEN":"SLOT_3" },
+    "3B": { "LUN":"SLOT_1", "MAR":"SLOT_1", "MER":"SLOT_1", "GIO":"SLOT_1", "VEN":"SLOT_3" },
+    "4A":{ "LUN":"SLOT_2", "MAR":"SLOT_2", "MER":"SLOT_2", "GIO":"SLOT_2", "VEN":"SLOT_3" },
+    "4B":{ "LUN":"SLOT_2", "MAR":"SLOT_2", "MER":"SLOT_2", "GIO":"SLOT_2", "VEN":"SLOT_3" },
+    "5A":{ "LUN":"SLOT_2", "MAR":"SLOT_2", "MER":"SLOT_2", "GIO":"SLOT_2", "VEN":"SLOT_3" },
 }
-# ------------------------------------------------------------------
 
-random.seed(1)
+# assegnazioni docenti: mappa doc -> {classe:ore, ..., 'copertura':ore}
+ASSEGNAZIONE_DOCENTI = {
+    "ANGELINI": {"1A": 11, "1B":11},
+    "DOCENTE1": {"1A": 11, "1B":11},
+    "SABATELLI": {"2A": 9, "2B":9, "copertura":4},
+    "SCHIAVONE": {"2A": 11, "2B":11},
+    "CICCIMARRA": {"2A": 3, "2B":3, "copertura":6},
+    "MARANGI": {"3A": 10, "3B":10, "copertura":2},
+    "SIMEONE": {"3A": 11, "3B":11},
+    "PEPE": {"4A": 8, "4B":8, "copertura":6},
+    "PALMISANO": {"4A": 10, "4B":10, "copertura":2},
+    "ZIZZI": {"5A": 11},
+    "DOCENTE2": {"5A": 3, "4A": 4, "4B":4},
+    "MOTORIA": {"5A": 2, "4A": 2, "4B":2},
+    "LEO": {"1A":2, "1B":2, "2A":2, "2B":2, "3A":2, "3B":2, "4A":2, "4B":2, "5A":2},
+    "SAVINO": {"1A":2, "1B":2, "2A":2, "2B":2, "3A":2, "3B":2, "4A":2, "4B":2},
+}
 
-# Derived structures
-DAY_ORDER = GIORNI
-SLOTS_PER_DAY = [ORE_PER_GIORNATE[d] for d in DAY_ORDER]
-TOTAL_SLOTS = sum(SLOTS_PER_DAY)
-# Linear slot indices map to (day, position)
-SLOT_LABELS = []
-for d in DAY_ORDER:
-    for i in range(1, ORE_PER_GIORNATE[d] + 1):
-        SLOT_LABELS.append(f"{d}{i}")
+# utility per mappare nome slot
+SLOT_MAP = {"SLOT_1": SLOT_1, "SLOT_2": SLOT_2, "SLOT_3": SLOT_3}
 
-# Utilities
-def make_empty_schedule():
-    return [None] * TOTAL_SLOTS
-
-def slots_for_day(day_index):
-    start = sum(SLOTS_PER_DAY[:day_index])
-    return range(start, start + SLOTS_PER_DAY[day_index])
-
-# 1) Genera orario per classe: assegna per classe le materie (token) in base alle ORE_SETTIMANALI
-def generate_class_schedule(class_name, max_attempts=500):
-    """
-    Crea una sequenza di length TOTAL_SLOTS per la classe.
-    Vincoli rispettati (se possibile):
-    - Il totale settimanale per materia è quello in ORE_SETTIMANALI.
-    - All'interno di ogni giornata, ore della stessa materia sono consecutive, salvo al massimo 2 blocchi per materia/giorno solo se il conteggio di quella materia in quella giornata è >= 4.
-    - Se una materia compare 1/2/3 volte in una giornata, quelle ore devono essere in un singolo blocco.
-    - Ogni giornata deve contenere almeno due materie diverse (escludendo ATT).
-    """
-    subjects = list(ORE_SETTIMANALI.keys())
-    for attempt in range(max_attempts):
-        remaining = dict(ORE_SETTIMANALI)
-        week_tokens = []
-        failed = False
-        for day_idx, slots in enumerate(SLOTS_PER_DAY):
-            # build a preliminary day allocation by greedily taking blocks from remaining
-            day_alloc = []  # list of subject tokens (length = slots)
-            # while there are slots to fill
-            while len(day_alloc) < slots:
-                available = [s for s in subjects if remaining.get(s, 0) > 0]
-                if not available:
-                    # fill with ATT
-                    day_alloc += ["ATT"] * (slots - len(day_alloc))
-                    break
-                # pick a subject to place next block (prefer subjects with more remaining)
-                weights = [remaining[s] for s in available]
-                s = random.choices(available, weights=weights, k=1)[0]
-                # choose block size at most remaining[s] and remaining slots
-                max_block = min(remaining[s], slots - len(day_alloc))
-                # try to place larger blocks more often
-                if max_block <= 1:
-                    b = max_block
-                else:
-                    b = random.randint(1, max_block)
-                day_alloc += [s] * b
-                remaining[s] -= b
-            # now we have a day_alloc, ensure it has at least two real subjects (exclude ATT)
-            real_subjects = [t for t in set(day_alloc) if t != "ATT"]
-            if len(real_subjects) < 2:
-                # attempt to adjust by pulling one hour from another day later is complex; mark as failed
-                failed = True
-                break
-            # enforce per-subject block rules by rebuilding day sequence from counts
-            counts = defaultdict(int)
-            for t in day_alloc:
-                if t != "ATT":
-                    counts[t] += 1
-            # build blocks: list of (subject, size) respecting rules
-            blocks = []
-            for subj, cnt in counts.items():
-                if cnt <= 3:
-                    # single block
-                    blocks.append((subj, cnt))
-                else:
-                    # allow up to 2 blocks: split roughly in half
-                    k = cnt // 2
-                    blocks.append((subj, k))
-                    blocks.append((subj, cnt - k))
-            # include ATT as single block at the end if present
-            att_count = day_alloc.count("ATT")
-            if att_count > 0:
-                blocks.append(("ATT", att_count))
-            # now order blocks so that equal subjects are not adjacent (ensure split blocks separated)
-            ordered_blocks = []
-            # greedy placement: always pick the largest remaining block whose subject != last_subject
-            blocks_left = blocks.copy()
-            last_subject = None
-            while blocks_left:
-                # filter candidates
-                candidates = [b for b in blocks_left if b[0] != last_subject]
-                if not candidates:
-                    # cannot avoid adjacency; just pop one
-                    b = blocks_left.pop(0)
-                else:
-                    # pick candidate with largest size to reduce fragmentation
-                    b = max(candidates, key=lambda x: x[1])
-                    blocks_left.remove(b)
-                ordered_blocks.append(b)
-                last_subject = b[0]
-            # build final day_seq
-            day_seq = []
-            for subj, size in ordered_blocks:
-                day_seq += [subj] * size
-            # final sanity: length should equal slots
-            if len(day_seq) != slots:
-                # if mismatch, try trivial fix: trim or pad with ATT
-                if len(day_seq) > slots:
-                    day_seq = day_seq[:slots]
-                else:
-                    day_seq += ["ATT"] * (slots - len(day_seq))
-            # ensure again that for subjects with counts 1-3 they are in single block
-            def has_multiple_blocks(sequence, subject):
-                seen = False
-                blocks_found = 0
-                i = 0
-                n = len(sequence)
-                while i < n:
-                    if sequence[i] == subject:
-                        blocks_found += 1
-                        while i < n and sequence[i] == subject:
-                            i += 1
-                    else:
-                        i += 1
-                return blocks_found > 1
-            ok_blocks = True
-            for subj, cnt in counts.items():
-                if cnt <= 3 and has_multiple_blocks(day_seq, subj):
-                    ok_blocks = False
-                    break
-                if cnt >= 4:
-                    # allow at most 2 blocks
-                    if has_multiple_blocks(day_seq, subj):
-                        # count blocks
-                        # count occurrences of blocks
-                        blocks_found = 0
-                        i = 0
-                        n = len(day_seq)
-                        while i < n:
-                            if day_seq[i] == subj:
-                                blocks_found += 1
-                                while i < n and day_seq[i] == subj:
-                                    i += 1
-                            else:
-                                i += 1
-                        if blocks_found > 2:
-                            ok_blocks = False
-                            break
-            if not ok_blocks:
-                failed = True
-                break
-            # append day_seq to week_tokens
-            week_tokens.extend(day_seq)
-        if failed:
-            continue
-        # final check: all remaining should be zero
-        if any(v != 0 for v in remaining.values()):
-            continue
-        return week_tokens
-    # fallback: naive fill
-    tokens = []
-    for m, h in ORE_SETTIMANALI.items():
-        tokens += [m] * h
-    remaining = TOTAL_SLOTS - len(tokens)
-    tokens += ["ATT"] * remaining
-    return tokens
-
-# Build all class schedules
-class_schedules = {c: generate_class_schedule(c) for c in CLASSI}
-
-# 2) For each class-subject, find indices where it appears
-class_subject_slots = []  # list of (class, subject, indices)
-for c in CLASSI:
-    sched = class_schedules[c]
-    for subj in MATERIE:
-        indices = [i for i, s in enumerate(sched) if s == subj]
-        if indices:
-            class_subject_slots.append((c, subj, indices))
-
-# Sort by descending number of occurrences to place heavy loads first
-class_subject_slots.sort(key=lambda x: -len(x[2]))
-
-# 3) Prepare teacher data structures
-teachers = list(DOCENTI.keys())
-# postpone free day selection until after assignment to avoid blocking feasibility
-teacher_free_day = {t: None for t in teachers}
-
-teacher_schedule = {t: make_empty_schedule() for t in teachers}
-teacher_hours = {t: 0 for t in teachers}
-
-# Helper to check teacher availability for given indices and subj
-def teacher_can_take(t, indices, subject):
-    # can teach subject?
-    if subject not in DOCENTI[t]:
-        return False
-    # if a free day is already set, ensure none of the indices fall on that day
-    free_day = teacher_free_day.get(t)
-    if free_day is not None:
-        free_day_idx = DAY_ORDER.index(free_day)
-        for i in indices:
-            day_idx = next(j for j, r in enumerate(itertools.accumulate(SLOTS_PER_DAY)) if i < r)
-            if day_idx == free_day_idx:
-                return False
-    # ensure teacher is free in those slots
-    for i in indices:
-        if teacher_schedule[t][i] is not None:
-            return False
-    # hours limit
-    if teacher_hours[t] + len(indices) > ORE_DOCENTE:
-        return False
-    return True
-
-# Backtracking assignment of teachers to class-subject
-assignment = {}  # (class,subject) -> teacher
-
-pairs = [(c, s, idxs) for (c, s, idxs) in class_subject_slots]
-
-def assign_recursive(pos=0):
-    if pos >= len(pairs):
-        return True
-    c, s, idxs = pairs[pos]
-    candidates = [t for t in teachers if teacher_can_take(t, idxs, s)]
-    random.shuffle(candidates)
-    for t in candidates:
-        # assign
-        assignment[(c, s)] = t
-        for i in idxs:
-            teacher_schedule[t][i] = f"{s} ({c})"
-        teacher_hours[t] += len(idxs)
-        # recurse
-        if assign_recursive(pos + 1):
-            return True
-        # undo
-        del assignment[(c, s)]
-        for i in idxs:
-            teacher_schedule[t][i] = None
-        teacher_hours[t] -= len(idxs)
-    return False
-
-# Replace single attempt with multiple randomized attempts and debug info
-MAX_ASSIGN_ATTEMPTS = 500
-ok = False
-for attempt in range(1, MAX_ASSIGN_ATTEMPTS + 1):
-    # reset teacher schedules and hours (do not set free days yet)
-    for t in teachers:
-        teacher_schedule[t] = make_empty_schedule()
-        teacher_hours[t] = 0
-    assignment.clear()
-
-    # quick sanity check: for each (class,subject) ensure at least one possible teacher that knows the subject
-    impossible_pair = None
-    for (c, s, idxs) in pairs:
-        candidates_for_subject = [t for t in teachers if s in DOCENTI[t]]
-        if len(candidates_for_subject) == 0:
-            impossible_pair = (c, s)
-            break
-    if impossible_pair:
-        print(f"Errore: nessun docente disponibile per la materia {impossible_pair[1]} nella classe {impossible_pair[0]}. Aggiorna DOCENTI.")
-        break
-
-    # debug: mostra numero di candidati per le prime 10 coppie per non inondare l'output
-    print(f"Tentativo {attempt}/{MAX_ASSIGN_ATTEMPTS}: controllo candidati per le prime coppie (class, subject, #candidati)")
-    for (c, s, idxs) in pairs[:10]:
-        cand = [t for t in teachers if s in DOCENTI[t]]
-        print(f"  {c} {s} ({len(idxs)} ore) -> {len(cand)} candidati: {cand}")
-
-    if assign_recursive():
-        print(f"Assegnazione trovata al tentativo {attempt}")
-        ok = True
-        break
-    # otherwise try again
-
-if not ok:
-    raise RuntimeError("Impossibile assegnare i docenti con i vincoli attuali dopo tentativi multipli. Prova a modificare DOCENTI o parametri.")
-
-# After successful assignment, choose a free day for each teacher: prefer a day with zero lessons
-for t in teachers:
-    # count lessons per day
-    lessons_per_day = []
-    for day_idx in range(len(DAY_ORDER)):
-        day_slots = list(slots_for_day(day_idx))
-        cnt = sum(1 for i in day_slots if teacher_schedule[t][i] is not None)
-        lessons_per_day.append((cnt, day_idx))
-    lessons_per_day.sort()  # prefer day with fewest lessons
-    preferred_day_idx = lessons_per_day[0][1]
-    teacher_free_day[t] = DAY_ORDER[preferred_day_idx]
-
-# Ensure unique teacher per (class,subject) — validate and repair if needed
-print("Validazione: garantire docente unico per ogni (classe, materia) ...")
-for (c, s, idxs) in class_subject_slots:
-    # collect which teacher currently holds each slot
-    slot_teachers = []
-    for i in idxs:
-        owners = [t for t in teachers if teacher_schedule[t][i] == f"{s} ({c})"]
-        slot_teachers.append(owners[0] if owners else None)
-    unique_assigned = set([t for t in slot_teachers if t])
-    if len(unique_assigned) <= 1 and all(x is not None for x in slot_teachers):
-        # already a unique assigned teacher present for all slots
-        assignment[(c, s)] = next(iter(unique_assigned)) if unique_assigned else assignment.get((c, s))
-        continue
-    # choose majority teacher if present
-    counts = Counter([t for t in slot_teachers if t])
-    chosen = None
-    if counts:
-        chosen = counts.most_common(1)[0][0]
-    else:
-        # find any qualified candidate who can cover all slots (or empty ones)
-        candidates = []
-        for t in teachers:
-            if s not in DOCENTI[t]:
-                continue
-            ok = True
-            extra_needed = 0
-            for i in idxs:
-                if teacher_schedule[t][i] is not None and teacher_schedule[t][i] != f"{s} ({c})":
-                    ok = False
-                    break
-                if teacher_schedule[t][i] != f"{s} ({c})":
-                    extra_needed += 1
-            if not ok:
-                continue
-            if teacher_hours[t] + extra_needed <= ORE_DOCENTE:
-                candidates.append(t)
-        if candidates:
-            chosen = candidates[0]
-    if not chosen:
-        print(f"Avviso: impossibile garantire docente unico per {c} {s}; nessun candidato trovato. Lasciando assegnazioni esistenti.")
-        continue
-    # reassign slots to chosen teacher
-    for i in idxs:
-        # remove from other teachers
-        for t in teachers:
-            if t != chosen and teacher_schedule[t][i] == f"{s} ({c})":
-                teacher_schedule[t][i] = None
-                teacher_hours[t] -= 1
-        # assign to chosen if not already
-        if teacher_schedule[chosen][i] != f"{s} ({c})":
-            teacher_schedule[chosen][i] = f"{s} ({c})"
-            teacher_hours[chosen] += 1
-    assignment[(c, s)] = chosen
-
-# 4) Identificare BUCO per ciascun docente (tra due lezioni nello stesso giorno: slot vuoto tra due lezioni)
-BUCO = "BUCO"
-for t in teachers:
-    for day_idx, day in enumerate(DAY_ORDER):
-        day_slots = list(slots_for_day(day_idx))
-        # find lesson positions (non None)
-        lesson_pos = [i for i in day_slots if teacher_schedule[t][i] is not None]
-        if len(lesson_pos) >= 2:
-            first = min(lesson_pos)
-            last = max(lesson_pos)
-            for i in range(first, last + 1):
-                if teacher_schedule[t][i] is None:
-                    teacher_schedule[t][i] = BUCO
-
-# 5) Assegnare coopertura per raggiungere ORE_DOCENTE, evitando i giorni liberi e preferendo slot non-BUCO
-for t in teachers:
-    needed = ORE_DOCENTE - teacher_hours[t]
-    if needed <= 0:
-        continue
-    free_day_idx = DAY_ORDER.index(teacher_free_day[t])
-    # list candidate slots: slots that are None (not BUCO) and not on free day
-    candidates = [i for i, v in enumerate(teacher_schedule[t]) if v is None and (next(j for j, r in enumerate(itertools.accumulate(SLOTS_PER_DAY)) if i < r) != free_day_idx)]
-    # prefer slots outside BUCO (we already set BUCO so candidates exclude BUCO)
-    chosen = []
-    # if not enough candidates, allow BUCO slots to be replaced by coopertura (less ideal)
-    for i in candidates:
-        if needed <= 0:
-            break
-        teacher_schedule[t][i] = "coopertura"
-        chosen.append(i)
-        needed -= 1
-    if needed > 0:
-        # allow replacing BUCO
-        candidates_buco = [i for i, v in enumerate(teacher_schedule[t]) if v == BUCO and (next(j for j, r in enumerate(itertools.accumulate(SLOTS_PER_DAY)) if i < r) != free_day_idx)]
-        for i in candidates_buco:
-            if needed <= 0:
-                break
-            teacher_schedule[t][i] = "coopertura"
-            needed -= 1
-    teacher_hours[t] = ORE_DOCENTE - max(0, needed)
-
-# 6) Marcare giornata_libero per i docenti: se il giorno è il free day, mettere 'giorno_libero' in tutte le celle
-for t in teachers:
-    fd_idx = DAY_ORDER.index(teacher_free_day[t])
-    for i in slots_for_day(fd_idx):
-        teacher_schedule[t][i] = "giorno_libero"
-
-# 7) Preparare DataFrame per foglio Classi: valori come 'MAT (Doc1)'
-# Per ciascuna classe, sostituire materia con 'MAT (DocX)'
-class_df = pd.DataFrame(index=SLOT_LABELS)
-for c in CLASSI:
-    col = []
-    sched = class_schedules[c]
-    for i, subj in enumerate(sched):
-        if subj == "ATT":
-            col.append("")
-        else:
-            teacher = assignment.get((c, subj))
-            if teacher:
-                col.append(f"{subj} ({teacher})")
-            else:
-                col.append(subj)
-    class_df[c] = col
-# aggiungo colonna coopertura vuota per compatibilità con richiesta
-class_df["coopertura"] = [""] * TOTAL_SLOTS
-
-# 8) Preparare DataFrame per foglio Docenti
-doc_df = pd.DataFrame(index=SLOT_LABELS)
-for t in teachers:
-    col = []
-    sched = teacher_schedule[t]
-    for cell in sched:
-        if cell is None:
-            col.append("")
-        else:
-            col.append(cell)
-    doc_df[t] = col
-
-# 9) Esportare in Excel con colorazione per giorni
-out_fn = "orario_settimanale.xlsx"
-with pd.ExcelWriter(out_fn, engine="openpyxl") as writer:
-    class_df.to_excel(writer, sheet_name="Classi")
-    doc_df.to_excel(writer, sheet_name="Docenti")
-
-# Apri workbook per styling
-wb = load_workbook(out_fn)
-# color map per giorni
-day_colors = {
+# Colori per i giorni (openpyxl RGB)
+DAY_COLORS = {
     "LUN": "FFF2CC",
-    "MAR": "D9EAD3",
-    "MER": "D9E1F2",
+    "MAR": "DDEBF7",
+    "MER": "E2EFDA",
     "GIO": "FCE4D6",
-    "VEN": "F4CCCC",
+    "VEN": "E6E6FA",
 }
-for sheet_name in ["Classi", "Docenti"]:
-    ws = wb[sheet_name]
-    # header alignment
-    for col in range(1, ws.max_column + 1):
-        ws.cell(row=1, column=col).alignment = Alignment(horizontal="center", vertical="center")
-    # colorare le righe per giorni
-    row_offset = 2  # DataFrame written with index, so data starts at row 2
-    r = row_offset
-    for day_idx, day in enumerate(DAY_ORDER):
-        fill = PatternFill(start_color=day_colors.get(day, "FFFFFF"), end_color=day_colors.get(day, "FFFFFF"), fill_type="solid")
-        for _ in range(SLOTS_PER_DAY[day_idx]):
-            for col in range(1, ws.max_column + 1):
-                ws.cell(row=r, column=col).fill = fill
-            r += 1
-    # set column widths
-    for col in range(1, ws.max_column + 1):
-        ws.column_dimensions[get_column_letter(col)].width = 18
 
-wb.save(out_fn)
+# -----------------------------
+# Help functions
+# -----------------------------
 
-print(f"Orario generato e salvato in '{out_fn}'")
+def seed_random():
+    # random seed basato su tempo e fonte os.urandom per variabilità
+    seed = int.from_bytes(os.urandom(4), "big") ^ int(datetime.datetime.utcnow().timestamp())
+    random.seed(seed)
+    return seed
+
+
+def build_class_slots():
+    """Ritorna dict: classe -> list di slot disponibili con durata in minuti.
+    Seleziona un sottoinsieme di slot la cui somma dei minuti è pari a ORE_SETTIMANALI_CLASSE_MIN (se possibile).
+    """
+    res = {}
+    for cl in CLASSI:
+        slots = []
+        mapping = ASSEGNAZIONE_SLOT.get(cl)
+        for g in GIORNI:
+            slot_key = mapping[g]
+            slot_template = SLOT_MAP[slot_key]
+            for idx in range(len(slot_template)):
+                time_label = slot_template[idx]
+                # durata in minuti: se termina con 13:30 allora 30 altrimenti 60
+                mins = 30 if time_label.endswith('13:30') else 60
+                label = f"{g}{idx+1}"
+                slots.append({"giorno": g, "idx": idx+1, "label": label, "time": time_label, "assigned": None, "mins": mins})
+        total_available = sum(s['mins'] for s in slots)
+        if total_available < ORE_SETTIMANALI_CLASSE_MIN:
+            raise RuntimeError(f"Classe {cl} ha meno minuti disponibili ({total_available}) di ORE_SETTIMANALI_CLASSE_MIN ({ORE_SETTIMANALI_CLASSE_MIN})")
+        # tentiamo di trovare una combinazione di slot con somma esatta usando DP (subset sum)
+        # per variabilità mescoliamo l'ordine
+        random.shuffle(slots)
+        target = ORE_SETTIMANALI_CLASSE_MIN
+        dp = {0: []}  # somma_min -> list of indices
+        for i, s in enumerate(slots):
+            dur = s['mins']
+            # iterare sulle somme presenti in dp in ordine decrescente per evitare riuso nello stesso step
+            for acc in sorted(list(dp.keys()), reverse=True):
+                new_sum = acc + dur
+                if new_sum > target:
+                    continue
+                if new_sum not in dp:
+                    dp[new_sum] = dp[acc] + [i]
+                if new_sum == target:
+                    break
+            if target in dp:
+                break
+        if target in dp:
+            chosen_indices = dp[target]
+        else:
+            # se non trovi la somma esatta, scegli la somma massima <= target
+            best = max(dp.keys())
+            chosen_indices = dp[best]
+        chosen = [slots[i] for i in chosen_indices]
+        # ordina per giorno e idx per stabilità
+        chosen.sort(key=lambda s: (GIORNI.index(s["giorno"]), s["idx"]))
+        res[cl] = chosen
+    return res
+
+
+def contiguous_segments(day_slots):
+    """Given sorted list of slots (by idx) returns list of (start_idx, length, slot_objs)
+    day_slots must be sorted by idx
+    """
+    segs = []
+    if not day_slots:
+        return segs
+    cur = [day_slots[0]]
+    for s in day_slots[1:]:
+        if s["idx"] == cur[-1]["idx"] + 1:
+            cur.append(s)
+        else:
+            segs.append((cur[0]["idx"], len(cur), cur.copy()))
+            cur = [s]
+    segs.append((cur[0]["idx"], len(cur), cur.copy()))
+    return segs
+
+# -----------------------------
+# Algoritmo di assegnazione
+# -----------------------------
+
+def assign_teachers(class_slots):
+    # stato delle assegnazioni (in minuti)
+    teacher_total = defaultdict(int)  # minuti assegnati per docente
+    teacher_day_assigned = defaultdict(lambda: defaultdict(int))  # teacher -> giorno -> minuti
+    teacher_day_slots = defaultdict(lambda: defaultdict(list))  # teacher->giorno->list of slot refs
+
+    MAX_CONTIGUOUS_MIN = 4 * 60  # 4 ore in minuti
+
+    def will_exceed_contiguous(teacher, giorno, added_slots):
+        """Verifica se aggiungendo added_slots al teacher in quel giorno si formerebbe un blocco continuo > MAX_CONTIGUOUS_MIN."""
+        # calcola tutti gli idx esistenti + quelli aggiunti
+        existing = [s['idx'] for s in teacher_day_slots[teacher].get(giorno, [])]
+        added = [s['idx'] for s in added_slots]
+        combined_slots = existing + added
+        if not combined_slots:
+            return False
+        # costruisci mappa idx -> mins per il giorno (considera anche eventuali duplicati)
+        idx_to_mins = {}
+        for s in teacher_day_slots[teacher].get(giorno, []):
+            idx_to_mins[s['idx']] = idx_to_mins.get(s['idx'], 0) + s['mins']
+        for s in added_slots:
+            idx_to_mins[s['idx']] = idx_to_mins.get(s['idx'], 0) + s['mins']
+        # trova segmenti contigui basandosi sugli idx presenti
+        idxs = sorted(set(combined_slots))
+        cur_sum = 0
+        prev = None
+        for idx in idxs:
+            if prev is None or idx == prev + 1:
+                cur_sum += idx_to_mins.get(idx, 0)
+            else:
+                # nuovo segmento
+                if cur_sum > MAX_CONTIGUOUS_MIN:
+                    return True
+                cur_sum = idx_to_mins.get(idx, 0)
+            prev = idx
+        if cur_sum > MAX_CONTIGUOUS_MIN:
+            return True
+        return False
+
+    # helper per provare assegnare un blocco contiguo di slot a un docente
+    def try_assign_block(teacher, block_slots):
+        giorno = block_slots[0]["giorno"]
+        block_minutes = sum(s['mins'] for s in block_slots)
+        # non permettere superamento ore settimanali
+        if teacher_total[teacher] + block_minutes > ORE_SETTIMANALI_DOCENTE_MIN:
+            return False
+        # non permettere blocchi continui > MAX_CONTIGUOUS_MIN
+        if will_exceed_contiguous(teacher, giorno, block_slots):
+            return False
+        # assegna
+        for s in block_slots:
+            s["assigned"] = teacher
+            teacher_day_slots[teacher][giorno].append(s)
+        teacher_day_assigned[teacher][giorno] += block_minutes
+        teacher_total[teacher] += block_minutes
+        return True
+
+    # primo pass: soddisfare le quote esplicite in ASSEGNAZIONE_DOCENTI
+    for teacher, quota_map in ASSEGNAZIONE_DOCENTI.items():
+        quota_copy = dict(quota_map)
+        copertura = quota_copy.pop('copertura', 0)
+        if copertura:
+            copertura = copertura * 60
+        for cl, need in quota_copy.items():
+            remain = need * 60
+            slots = class_slots.get(cl, [])
+            slots_by_day = defaultdict(list)
+            for s in slots:
+                if s["assigned"] is None:
+                    slots_by_day[s["giorno"]].append(s)
+            days = list(slots_by_day.keys())
+            random.shuffle(days)
+            for giorno in days:
+                if remain <= 0:
+                    break
+                day_slots = sorted(slots_by_day[giorno], key=lambda x: x["idx"]) if slots_by_day[giorno] else []
+                segs = contiguous_segments(day_slots)
+                segs.sort(key=lambda x: -x[1])
+                for start, length, seg_slots in segs:
+                    if remain <= 0:
+                        break
+                    # proviamo lunghezze di blocco misurate in numero di slot ma calcoliamo i minuti effettivi
+                    for block_slot_len in range(min(length, len(seg_slots)), 0, -1):
+                        # seleziona posizione casuale
+                        max_start = length - block_slot_len
+                        pos = random.randint(0, max_start)
+                        block = seg_slots[pos:pos+block_slot_len]
+                        block_minutes = sum(s['mins'] for s in block)
+                        if block_minutes > remain:
+                            continue
+                        if try_assign_block(teacher, block):
+                            remain -= block_minutes
+                            break
+        if copertura:
+            teacher_total[(teacher, 'desired_copertura')] = copertura
+
+    # seconda pass: riempi i blocchi non assegnati cercando di mantenere consecutività
+    unassigned = []
+    for cl, slots in class_slots.items():
+        for s in slots:
+            if s["assigned"] is None:
+                unassigned.append((cl, s))
+    random.shuffle(unassigned)
+
+    teachers = list(ASSEGNAZIONE_DOCENTI.keys())
+
+    def choose_teacher_for_block(block_slots, giorno):
+        block_minutes = sum(s['mins'] for s in block_slots)
+        cand = [t for t in teachers if teacher_total[t] + block_minutes <= ORE_SETTIMANALI_DOCENTE_MIN and (teacher_day_assigned[t][giorno] == 0 or teacher_day_assigned[t][giorno] == block_minutes) and not will_exceed_contiguous(t, giorno, block_slots)]
+        if not cand:
+            # rilassiamo la condizione sulla consecutività ma manteniamo il vincolo del blocco contiguo
+            cand = [t for t in teachers if teacher_total[t] + block_minutes <= ORE_SETTIMANALI_DOCENTE_MIN and not will_exceed_contiguous(t, giorno, block_slots)]
+        if not cand:
+            return None
+        return random.choice(cand)
+
+    # assegna segmenti contigui per classe/giorno
+    for cl, slots in class_slots.items():
+        by_day = defaultdict(list)
+        for s in slots:
+            if s["assigned"] is None:
+                by_day[s["giorno"]].append(s)
+        for giorno, day_slots in by_day.items():
+            day_slots.sort(key=lambda x: x["idx"])
+            segs = contiguous_segments(day_slots)
+            for start, length, seg_slots in segs:
+                i = 0
+                while i < length:
+                    max_block = length - i
+                    block_slot_len = random.randint(1, max_block)
+                    block = seg_slots[i:i+block_slot_len]
+                    teacher = choose_teacher_for_block(block, giorno)
+                    if teacher is None:
+                        # non ci sono candidati, lasciamo per la pass finale
+                        i += block_slot_len
+                        continue
+                    for s in block:
+                        s["assigned"] = teacher
+                    block_minutes = sum(s['mins'] for s in block)
+                    teacher_day_slots[teacher][giorno].extend(block)
+                    teacher_day_assigned[teacher][giorno] += block_minutes
+                    teacher_total[teacher] += block_minutes
+                    i += block_slot_len
+
+    # TERZA PASSA: assegna qualsiasi slot ancora libero singolarmente cercando di evitare violazioni
+    for cl, slots in class_slots.items():
+        for s in slots:
+            if s["assigned"] is None:
+                giorno = s["giorno"]
+                slot_min = s['mins']
+                # preferisci docente che ha già ore consecutive in quel giorno
+                candidates = []
+                for t in teachers:
+                    if teacher_total[t] + slot_min <= ORE_SETTIMANALI_DOCENTE_MIN and not will_exceed_contiguous(t, giorno, [s]):
+                        # preferisci se t ha ore nello stesso giorno e vicine
+                        if teacher_day_assigned[t][giorno] > 0:
+                            candidates.insert(0, t)
+                        else:
+                            candidates.append(t)
+                if not candidates:
+                    # non ci sono docenti con capacità residua che rispettano il vincolo di 4h contigue
+                    # cerchiamo candidati che potrebbero rispettare il vincolo se assegniamo comunque (ultima risorsa)
+                    candidates = [t for t in teachers if teacher_total[t] + slot_min <= ORE_SETTIMANALI_DOCENTE_MIN]
+                if not candidates:
+                    # non ci sono candidati con capacità residua, scegline uno e forza (potrebbe superare il limite)
+                    candidates = teachers[:]
+                chosen = random.choice(candidates)
+                s["assigned"] = chosen
+                teacher_day_slots[chosen][giorno].append(s)
+                teacher_day_assigned[chosen][giorno] += slot_min
+                teacher_total[chosen] += slot_min
+
+    # QUARTA PASSA: garantire almeno due docenti distinti per classe per giorno quando possibile
+    for cl, slots in class_slots.items():
+        # raggruppa per giorno
+        by_day = defaultdict(list)
+        for s in slots:
+            by_day[s["giorno"]].append(s)
+        for giorno, day_slots in by_day.items():
+            assigned_teachers = defaultdict(list)
+            for s in day_slots:
+                if s["assigned"]:
+                    assigned_teachers[s["assigned"]].append(s)
+            teachers_present = list(assigned_teachers.keys())
+            if len(teachers_present) >= 2:
+                continue
+            # se non ci sono assegnazioni (molto raro) o solo uno, proviamo a riassegnare
+            free_slots = [s for s in day_slots]
+            # se non ci sono almeno 2 slot fisici quel giorno non si può ottenere 2 docenti distinti
+            if len(free_slots) < 2:
+                # impossibile garantire 2 docenti per questo giorno — verrà segnalato nel report
+                continue
+            if len(teachers_present) == 0:
+                # scegli due docenti differenti con capacità residua (in minuti)
+                cand = [t for t in teachers if teacher_total[t] + 1 <= ORE_SETTIMANALI_DOCENTE_MIN and not will_exceed_contiguous(t, giorno, [free_slots[0]])]
+                if len(cand) < 2:
+                    cand = [t for t in teachers if not will_exceed_contiguous(t, giorno, [free_slots[0]])][:2]
+                if len(cand) < 2:
+                    cand = teachers[:2]
+                chosen = random.sample(cand, 2) if len(cand) >= 2 else random.choices(teachers, k=2)
+                # assegna a due slot distinti
+                random.shuffle(free_slots)
+                s1, s2 = free_slots[0], free_slots[1]
+                # rimuovi assegnazioni pregresse se presenti
+                if s1.get("assigned"):
+                    prev = s1["assigned"]
+                    teacher_day_assigned[prev][giorno] -= s1['mins']
+                    teacher_total[prev] -= s1['mins']
+                if s2.get("assigned"):
+                    prev = s2["assigned"]
+                    teacher_day_assigned[prev][giorno] -= s2['mins']
+                    teacher_total[prev] -= s2['mins']
+                # prima di assegnare verifica vincolo 4h
+                if not will_exceed_contiguous(chosen[0], giorno, [s1]) and not will_exceed_contiguous(chosen[1], giorno, [s2]):
+                    s1["assigned"] = chosen[0]
+                    s2["assigned"] = chosen[1]
+                    teacher_day_slots[chosen[0]][giorno].append(s1)
+                    teacher_day_slots[chosen[1]][giorno].append(s2)
+                    teacher_day_assigned[chosen[0]][giorno] += s1['mins']
+                    teacher_day_assigned[chosen[1]][giorno] += s2['mins']
+                    teacher_total[chosen[0]] += s1['mins']
+                    teacher_total[chosen[1]] += s2['mins']
+                else:
+                    # se il vincolo non è rispettato per i chosen, proviamo a trovare altri target
+                    alt_cand = [t for t in teachers if not will_exceed_contiguous(t, giorno, [s1]) and teacher_total[t] + s1['mins'] <= ORE_SETTIMANALI_DOCENTE_MIN]
+                    if alt_cand:
+                        t0 = random.choice(alt_cand)
+                        s1["assigned"] = t0
+                        teacher_day_slots[t0][giorno].append(s1)
+                        teacher_day_assigned[t0][giorno] += s1['mins']
+                        teacher_total[t0] += s1['mins']
+                    # per s2
+                    alt_cand2 = [t for t in teachers if not will_exceed_contiguous(t, giorno, [s2]) and teacher_total[t] + s2['mins'] <= ORE_SETTIMANALI_DOCENTE_MIN]
+                    if alt_cand2:
+                        t1 = random.choice(alt_cand2)
+                        s2["assigned"] = t1
+                        teacher_day_slots[t1][giorno].append(s2)
+                        teacher_day_assigned[t1][giorno] += s2['mins']
+                        teacher_total[t1] += s2['mins']
+            elif len(teachers_present) == 1:
+                sole = teachers_present[0]
+                slots_of_sole = assigned_teachers[sole]
+                # se il docente ha più di 1 ora quel giorno (in minuti), riassegna una di quelle ore a un altro docente
+                if sum(x['mins'] for x in slots_of_sole) >= 2 * 60:
+                    # trova candidato alternativo con capacità
+                    alt = [t for t in teachers if t != sole and teacher_total[t] + 30 <= ORE_SETTIMANALI_DOCENTE_MIN and not will_exceed_contiguous(t, giorno, [max(slots_of_sole, key=lambda x: x['mins'])])]
+                    if alt:
+                        chosen_alt = random.choice(alt)
+                        # prendi uno slot libero a caso tra quelli di sole
+                        slot_to_reassign = random.choice(slots_of_sole)
+                        # rimuovi assegnazione precedente
+                        teacher_day_assigned[sole][giorno] -= slot_to_reassign['mins']
+                        teacher_total[sole] -= slot_to_reassign['mins']
+                        # assegna a docente alternativo
+                        slot_to_reassign["assigned"] = chosen_alt
+                        teacher_day_slots[chosen_alt][giorno].append(slot_to_reassign)
+                        teacher_day_assigned[chosen_alt][giorno] += slot_to_reassign['mins']
+                        teacher_total[chosen_alt] += slot_to_reassign['mins']
+
+    return class_slots, teacher_total, teacher_day_slots
+
+def analyze_and_report(class_slots, teacher_total, teacher_day_slots, seed):
+    """Analizza l'orario generato e produce un report testuale sui vincoli verificati e violazioni.
+    Restituisce (None, report_lines). Il report viene stampato in console.
+    """
+    report_lines = []
+    try:
+        report_lines.append(f"Report generato: {datetime.datetime.now().isoformat()}")
+        report_lines.append(f"Random seed: {seed}")
+        report_lines.append("")
+
+        # VERIFICHE PER CLASSE: somma minuti assegnati
+        report_lines.append("Verifiche per classe:")
+        for cl, slots in class_slots.items():
+            assigned = [s for s in slots if s.get("assigned")]
+            total_min = sum(s['mins'] for s in assigned)
+            delta = total_min - ORE_SETTIMANALI_CLASSE_MIN
+            sign = "+" if delta > 0 else ("-" if delta < 0 else "")
+            report_lines.append(f" - {cl}: assegnati {total_min} min ({total_min/60:.1f} h) | target {ORE_SETTIMANALI_CLASSE_MIN} min ({ORE_SETTIMANALI_CLASSE_MIN/60:.1f} h) | delta {sign}{abs(delta)} min ({sign}{abs(delta)/60:.1f} h)")
+
+        report_lines.append("")
+
+        # VERIFICA ORE SETTIMANALI DOCENTI: usa teacher_total (minuti) e calcola delta rispetto al limite
+        report_lines.append("Verifica ore settimanali docenti:")
+        for teacher in ASSEGNAZIONE_DOCENTI.keys():
+            total = int(teacher_total.get(teacher, 0))
+            delta = total - ORE_SETTIMANALI_DOCENTE_MIN
+            sign = "+" if delta > 0 else ("-" if delta < 0 else "")
+            report_lines.append(f" - {teacher}: assegnate={total} min ({total/60:.1f} h) | limite={ORE_SETTIMANALI_DOCENTE_MIN} min ({ORE_SETTIMANALI_DOCENTE_MIN/60:.1f} h) | delta {sign}{abs(delta)} min ({sign}{abs(delta)/60:.1f} h)")
+
+        report_lines.append("")
+
+        # IDENTIFICAZIONE BUCHI (non considerati violazioni): usa teacher_day_slots
+        report_lines.append("Identificazione buco docenti per giorno:")
+        any_buco = False
+        for teacher, days in teacher_day_slots.items():
+            for giorno, slots in days.items():
+                if not slots:
+                    continue
+                idxs = sorted([s["idx"] for s in slots])
+                if len(idxs) <= 1:
+                    continue
+                all_between = set(range(min(idxs), max(idxs)+1))
+                missing = sorted(list(all_between - set(idxs)))
+                if missing:
+                    any_buco = True
+                    report_lines.append(f" - {teacher} {giorno}: buco posizioni {missing}")
+        if not any_buco:
+            report_lines.append(" - Nessun buco identificato")
+
+        report_lines.append("")
+
+        # RIEPILOGO VIOLAZIONI: mismatch sulle somme totali e docenti oltre limite
+        violations = []
+        for cl, slots in class_slots.items():
+            assigned = [s for s in slots if s.get("assigned")]
+            total_min = sum(s['mins'] for s in assigned)
+            if total_min != ORE_SETTIMANALI_CLASSE_MIN:
+                violations.append(("ore_classe_mismatch", cl, total_min, ORE_SETTIMANALI_CLASSE_MIN))
+        for teacher in ASSEGNAZIONE_DOCENTI.keys():
+            total = int(teacher_total.get(teacher, 0))
+            if total > ORE_SETTIMANALI_DOCENTE_MIN:
+                violations.append(("ore_superiori", teacher, total))
+
+        report_lines.append("Riepilogo violazioni:")
+        if not violations:
+            report_lines.append(" - Nessuna violazione rilevata sulle somme totali.")
+        else:
+            report_lines.append(f" - Totale violazioni: {len(violations)}")
+            for v in violations:
+                report_lines.append("   - " + str(v))
+
+    except Exception as e:
+        report_lines.append(f"Errore durante l'analisi del report: {e}")
+        print(f"Errore durante l'analisi e reportistica: {e}", flush=True)
+
+    # stampa il report in console
+    print("\n" + "="*40 + " REPORT ORARIO " + "="*40 + "\n")
+    for line in report_lines:
+        print(line)
+    print("\n" + "="*100 + "\n")
+
+    return None, report_lines
+
+def export_excel(class_slots):
+    """Esporta l'orario in un file Excel `orario_settimanale.xlsx` con fogli separati per classi e docenti.
+    Costruisce i DataFrame in memoria e salva con openpyxl; aggiunge colonne `coopertura` e `buco` nel foglio Classi e segnala i buchi nel foglio Docenti.
+    """
+    out_path = os.path.join(os.path.dirname(__file__), 'orario_settimanale.xlsx')
+    try:
+        # costruisci row_labels (giorno+indice) basandoci sul massimo numero di slot giornalieri
+        max_idx_per_day = max(len(SLOT_1), len(SLOT_2), len(SLOT_3))
+        row_labels = [f"{g}{i}" for g in GIORNI for i in range(1, max_idx_per_day+1)]
+
+        # calcola coopertura e buchi
+        coop_map = defaultdict(list)  # label -> [teacher,...]
+        teacher_day_idxs = defaultdict(lambda: defaultdict(list))  # teacher -> giorno -> [idx,...]
+
+        for cl, slots in class_slots.items():
+            for s in slots:
+                label = f"{s['giorno']}{s['idx']}"
+                teacher = s.get('assigned')
+                if teacher:
+                    prefs = ASSEGNAZIONE_DOCENTI.get(teacher, {})
+                    if cl not in prefs:
+                        coop_map[label].append(teacher)
+                    teacher_day_idxs[teacher][s['giorno']].append(s['idx'])
+
+        buco_label_map = defaultdict(list)
+        for teacher, days in teacher_day_idxs.items():
+            for giorno, idxs in days.items():
+                if not idxs:
+                    continue
+                idxs_sorted = sorted(idxs)
+                if len(idxs_sorted) <= 1:
+                    continue
+                all_between = set(range(min(idxs_sorted), max(idxs_sorted)+1))
+                missing = sorted(list(all_between - set(idxs_sorted)))
+                for m in missing:
+                    buco_label_map[f"{giorno}{m}"].append(teacher)
+
+        # DataFrame Classi
+        extra_cols = ['coopertura', 'buco']
+        df_classi = pd.DataFrame('', index=row_labels, columns=CLASSI + extra_cols)
+        df_classi.index.name = 'Ora'
+        for cl, slots in class_slots.items():
+            slot_map = {f"{s['giorno']}{s['idx']}": s for s in slots}
+            for rl in row_labels:
+                s = slot_map.get(rl)
+                if s and s.get('assigned'):
+                    df_classi.at[rl, cl] = s['assigned']
+        for rl in row_labels:
+            coop_list = coop_map.get(rl, [])
+            df_classi.at[rl, 'coopertura'] = ','.join(coop_list) if coop_list else ''
+            buco_list = buco_label_map.get(rl, [])
+            df_classi.at[rl, 'buco'] = ','.join(buco_list) if buco_list else ''
+
+        # DataFrame Docenti
+        teachers = list(ASSEGNAZIONE_DOCENTI.keys())
+        df_doc = pd.DataFrame('', index=row_labels, columns=teachers)
+        df_doc.index.name = 'Ora'
+        for cl, slots in class_slots.items():
+            for s in slots:
+                label = f"{s['giorno']}{s['idx']}"
+                teacher = s.get('assigned')
+                if teacher:
+                    df_doc.at[label, teacher] = cl
+        # segna buco nel foglio docenti
+        for label, tlist in buco_label_map.items():
+            for t in tlist:
+                df_doc.at[label, t] = 'buco'
+
+        # salva in Excel
+        with pd.ExcelWriter(out_path, engine='openpyxl') as writer:
+            df_classi.to_excel(writer, sheet_name='Classi')
+            df_doc.to_excel(writer, sheet_name='Docenti')
+
+        # colorazione righe per giorno
+        wb = load_workbook(out_path)
+        for sheet_name in ['Classi', 'Docenti']:
+            if sheet_name not in wb.sheetnames:
+                continue
+            ws = wb[sheet_name]
+            for ridx, rl in enumerate(row_labels, start=2):
+                giorno = rl[:3]
+                color = DAY_COLORS.get(giorno)
+                if color:
+                    fill = PatternFill(start_color=color, end_color=color, fill_type='solid')
+                    for cidx in range(1, ws.max_column+1):
+                        cell = ws.cell(row=ridx, column=cidx)
+                        cell.fill = fill
+        wb.save(out_path)
+        print(f"Excel salvato in: {out_path}", flush=True)
+    except Exception as e:
+        print(f"Errore durante l'esportazione in Excel: {e}", flush=True)
+    return out_path
+
+def main():
+    print("[DEBUG] main() start", flush=True)
+    seed = seed_random()
+    print(f"[DEBUG] seed={seed}", flush=True)
+    class_slots = build_class_slots()
+    print("[DEBUG] build_class_slots completato", flush=True)
+    class_slots, teacher_total, teacher_day_slots = assign_teachers(class_slots)
+    print("[DEBUG] assign_teachers completato", flush=True)
+    report_path, report_lines = analyze_and_report(class_slots, teacher_total, teacher_day_slots, seed)
+    print("[DEBUG] analyze_and_report completato", flush=True)
+    excel_path = export_excel(class_slots)
+    print("[DEBUG] export_excel completato", flush=True)
+    print("Fatto.")
+    # stampa report su console
+    try:
+        for line in report_lines:
+            print(line)
+    except Exception as e:
+        print(f"Errore durante la stampa del report: {e}", flush=True)
+
+print("[DEBUG] genera_orario.py avviato", flush=True)
+print(f"[DEBUG] cwd={os.getcwd()}", flush=True)
+
+if __name__ == "__main__":
+    main()
