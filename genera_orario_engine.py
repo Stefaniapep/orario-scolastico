@@ -30,18 +30,24 @@ def generate_schedule(config):
     MAX_ORE_SETTIMANALI_DOCENTI = config['MAX_ORE_SETTIMANALI_DOCENTI']
     ASSEGNAZIONE_DOCENTI = config['ASSEGNAZIONE_DOCENTI']
     
+    # Carica le flag per i vincoli specifici
     GROUP_DAILY_TWO_CLASSES = config.get('GROUP_DAILY_TWO_CLASSES', set()) if config.get('USE_GROUP_DAILY_TWO_CLASSES') else set()
     LIMIT_ONE_PER_DAY_PER_CLASS = config.get('LIMIT_ONE_PER_DAY_PER_CLASS', set()) if config.get('USE_LIMIT_ONE_PER_DAY') else set()
     ONLY_DAYS = config.get('ONLY_DAYS', {}) if config.get('USE_ONLY_DAYS') else {}
     START_AT = config.get('START_AT', {}) if config.get('USE_START_AT') else {}
     END_AT = config.get('END_AT', {}) if config.get('USE_END_AT') else {}
+    
+    # Carica le flag per i vincoli generici (NUOVO)
+    USE_MAX_DAILY_HOURS_PER_CLASS = config.get('USE_MAX_DAILY_HOURS_PER_CLASS', True)
+    USE_CONSECUTIVE_BLOCKS = config.get('USE_CONSECUTIVE_BLOCKS', True)
+    USE_MAX_ONE_HOLE = config.get('USE_MAX_ONE_HOLE', True)
 
     # --- 2. PRE-ELABORAZIONE E DEFINIZIONE STRUTTURE DATI ---
+    # ... (Codice invariato) ...
     UNIT = 0.5
     def hours_to_units(h): return int(round(h / UNIT))
     def units_to_hours(u): return u * UNIT
     def get_scheduling_label(time_str): return time_str.split('-')[0]
-
     SLOT_MAP = {"SLOT_1": SLOT_1, "SLOT_2": SLOT_2, "SLOT_3": SLOT_3}
     class_slots = {cl: {day: [(get_scheduling_label(t), t, hours_to_units(d)) for t,d in SLOT_MAP[ASSEGNAZIONE_SLOT[cl][day]]] for day in GIORNI} for cl in CLASSI}
     all_full_labels = list(set(t for s in [SLOT_1, SLOT_2, SLOT_3] for t, _ in s))
@@ -85,7 +91,7 @@ def generate_schedule(config):
     else:
         log_messages.append('Prevalidazione dati OK: assegnazioni coprono le richieste di classe e rispettano i massimi docenti.')
 
-    # --- 3. CREAZIONE DEL MODELLO E DELLE VARIABILI ---
+    # --- 3. MODELLO E VARIABILI (invariato) ---
     model = cp_model.CpModel()
     x = { (cl, day, s_idx, t): model.NewBoolVar(f"x_{cl}_{day}_{s_idx}_{t}") for cl in CLASSI for day in GIORNI for s_idx, _ in enumerate(class_slots[cl][day]) for t in allowed_teachers_per_class[cl] }
     copertura_vars = { (day, s_idx, t): (model.NewBoolVar(f"cop_{day}_{s_idx}_{t}"), sl, fl, u) for day, slots in copertura_slots.items() for s_idx, (sl, fl, u) in enumerate(slots) for t in teachers if ASSEGNAZIONE_DOCENTI.get(t, {}).get('copertura', 0) > 0 }
@@ -124,14 +130,17 @@ def generate_schedule(config):
     log_messages.append("\nApplicazione vincoli...")
     active_constraints_for_report = []
 
-    log_messages.append("- Vincolo: Massimo 4 ore per docente per classe al giorno")
-    for t, assignments in ASSEGNAZIONE_DOCENTI.items():
-        for cl in assignments:
-            if cl == 'copertura': continue
-            for day in GIORNI:
-                daily_class_units = sum(x.get((cl, day, s_idx, t), 0) * u for s_idx, (sl, fl, u) in enumerate(class_slots[cl][day]))
-                model.Add(daily_class_units <= hours_to_units(4))
+    # --- VINCOLI GENERICI (ORA CONDIZIONALI) ---
+    if USE_MAX_DAILY_HOURS_PER_CLASS:
+        log_messages.append("- Vincolo ATTIVO: Massimo 4 ore per docente per classe al giorno")
+        for t, assignments in ASSEGNAZIONE_DOCENTI.items():
+            for cl in assignments:
+                if cl == 'copertura': continue
+                for day in GIORNI:
+                    daily_class_units = sum(x.get((cl, day, s_idx, t), 0) * u for s_idx, (sl, fl, u) in enumerate(class_slots[cl][day]))
+                    model.Add(daily_class_units <= hours_to_units(4))
 
+    # --- VINCOLI SPECIFICI (invariati) ---
     if LIMIT_ONE_PER_DAY_PER_CLASS:
         active_constraints_for_report.append(f"Max 1 ora/giorno/classe per {LIMIT_ONE_PER_DAY_PER_CLASS}")
         for t in LIMIT_ONE_PER_DAY_PER_CLASS:
@@ -165,50 +174,60 @@ def generate_schedule(config):
                     if int(sched_label.split(':')[0]) >= end_hour:
                         if (teacher, day, sched_label) in b: model.Add(b[(teacher, day, sched_label)] == 0)
 
-    log_messages.append("- Vincolo: Blocchi di 2 o 3 ore in una classe devono essere consecutivi")
-    for t in teachers:
-        if t in LIMIT_ONE_PER_DAY_PER_CLASS: continue
-        for cl in ASSEGNAZIONE_DOCENTI.get(t, {}):
-            if cl == 'copertura': continue
-            for day in GIORNI:
-                daily_class_units = sum(x.get((cl, day, s_idx, t), 0) * u for s_idx, (sl, fl, u) in enumerate(class_slots[cl][day]))
-                is_2_or_3_hours = model.NewBoolVar(f'is_2_or_3h_{t}_{cl}_{day}')
-                is_exactly_two = model.NewBoolVar(f'exactly_2h_{t}_{cl}_{day}')
-                is_exactly_three = model.NewBoolVar(f'exactly_3h_{t}_{cl}_{day}')
-                model.Add(daily_class_units == hours_to_units(2)).OnlyEnforceIf(is_exactly_two)
-                model.Add(daily_class_units != hours_to_units(2)).OnlyEnforceIf(is_exactly_two.Not())
-                model.Add(daily_class_units == hours_to_units(3)).OnlyEnforceIf(is_exactly_three)
-                model.Add(daily_class_units != hours_to_units(3)).OnlyEnforceIf(is_exactly_three.Not())
-                model.AddBoolOr([is_exactly_two, is_exactly_three]).OnlyEnforceIf(is_2_or_3_hours)
-                model.AddImplication(is_2_or_3_hours.Not(), is_exactly_two.Not())
-                model.AddImplication(is_2_or_3_hours.Not(), is_exactly_three.Not())
-                teaches_this_class = []
-                for sl in GLOBAL_SCHEDULING_TIMES:
-                    presence_in_slot = model.NewBoolVar(f'presence_{t}_{cl}_{day}_{sl.replace(":", "")}')
-                    vars_in_slot = [x.get((cl, day, s_idx, t)) for s_idx, (s_label, _, _) in enumerate(class_slots[cl][day]) if s_label == sl]
-                    if not vars_in_slot: model.Add(presence_in_slot == 0)
-                    else:
-                        model.Add(sum(vars_in_slot) >= 1).OnlyEnforceIf(presence_in_slot)
-                        model.Add(sum(vars_in_slot) == 0).OnlyEnforceIf(presence_in_slot.Not())
-                    teaches_this_class.append(presence_in_slot)
-                starts = [model.NewBoolVar(f'class_start_{t}_{cl}_{day}_{i}') for i in range(len(teaches_this_class))]
-                model.Add(starts[0] == teaches_this_class[0])
-                for i in range(1, len(teaches_this_class)):
-                    model.AddBoolAnd([teaches_this_class[i], teaches_this_class[i-1].Not()]).OnlyEnforceIf(starts[i])
-                    model.AddBoolOr([starts[i], teaches_this_class[i].Not(), teaches_this_class[i-1]])
-                num_class_blocks = sum(starts)
-                model.Add(num_class_blocks <= 1).OnlyEnforceIf(is_2_or_3_hours)
 
-    log_messages.append("- Vincolo: Continuità oraria flessibile (max 1 buco) per tutti i docenti")
-    for t in teachers:
-        for day in GIORNI:
-            works_at_time = [b[(t, day, sched_label)] for sched_label in GLOBAL_SCHEDULING_TIMES]
-            starts = [model.NewBoolVar(f'start_{t}_{day}_{i}') for i in range(len(GLOBAL_SCHEDULING_TIMES))]
-            model.Add(starts[0] == works_at_time[0])
-            for i in range(1, len(GLOBAL_SCHEDULING_TIMES)):
-                model.AddBoolAnd([works_at_time[i], works_at_time[i-1].Not()]).OnlyEnforceIf(starts[i])
-                model.AddBoolOr([starts[i], works_at_time[i].Not(), works_at_time[i-1]])
-            model.Add(sum(starts) <= 2)
+    # --- ALTRI VINCOLI GENERICI (ORA CONDIZIONALI) ---
+    if USE_CONSECUTIVE_BLOCKS:
+        log_messages.append("- Vincolo ATTIVO: Blocchi di 2 o 3 ore in una classe devono essere consecutivi")
+        for t in teachers:
+            if t in LIMIT_ONE_PER_DAY_PER_CLASS: continue
+            for cl in ASSEGNAZIONE_DOCENTI.get(t, {}):
+                if cl == 'copertura': continue
+                for day in GIORNI:
+                    # ... (logica del vincolo di consecutività invariata)
+                    daily_class_units = sum(x.get((cl, day, s_idx, t), 0) * u for s_idx, (sl, fl, u) in enumerate(class_slots[cl][day]))
+                    is_2_or_3_hours = model.NewBoolVar(f'is_2_or_3h_{t}_{cl}_{day}')
+                    is_exactly_two = model.NewBoolVar(f'exactly_2h_{t}_{cl}_{day}')
+                    is_exactly_three = model.NewBoolVar(f'exactly_3h_{t}_{cl}_{day}')
+                    model.Add(daily_class_units == hours_to_units(2)).OnlyEnforceIf(is_exactly_two)
+                    model.Add(daily_class_units != hours_to_units(2)).OnlyEnforceIf(is_exactly_two.Not())
+                    model.Add(daily_class_units == hours_to_units(3)).OnlyEnforceIf(is_exactly_three)
+                    model.Add(daily_class_units != hours_to_units(3)).OnlyEnforceIf(is_exactly_three.Not())
+                    model.AddBoolOr([is_exactly_two, is_exactly_three]).OnlyEnforceIf(is_2_or_3_hours)
+                    model.AddImplication(is_2_or_3_hours.Not(), is_exactly_two.Not())
+                    model.AddImplication(is_2_or_3_hours.Not(), is_exactly_three.Not())
+                    teaches_this_class = []
+                    for sl in GLOBAL_SCHEDULING_TIMES:
+                        presence_in_slot = model.NewBoolVar(f'presence_{t}_{cl}_{day}_{sl.replace(":", "")}')
+                        vars_in_slot = [x.get((cl, day, s_idx, t)) for s_idx, (s_label, _, _) in enumerate(class_slots[cl][day]) if s_label == sl]
+                        if not vars_in_slot: model.Add(presence_in_slot == 0)
+                        else:
+                            model.Add(sum(vars_in_slot) >= 1).OnlyEnforceIf(presence_in_slot)
+                            model.Add(sum(vars_in_slot) == 0).OnlyEnforceIf(presence_in_slot.Not())
+                        teaches_this_class.append(presence_in_slot)
+                    starts = [model.NewBoolVar(f'class_start_{t}_{cl}_{day}_{i}') for i in range(len(teaches_this_class))]
+                    model.Add(starts[0] == teaches_this_class[0])
+                    for i in range(1, len(teaches_this_class)):
+                        model.AddBoolAnd([teaches_this_class[i], teaches_this_class[i-1].Not()]).OnlyEnforceIf(starts[i])
+                        model.AddBoolOr([starts[i], teaches_this_class[i].Not(), teaches_this_class[i-1]])
+                    num_class_blocks = sum(starts)
+                    model.Add(num_class_blocks <= 1).OnlyEnforceIf(is_2_or_3_hours)
+
+    if USE_MAX_ONE_HOLE:
+        log_messages.append("- Vincolo ATTIVO: Continuità oraria flessibile (max 1 buco) per tutti i docenti")
+        for t in teachers:
+            for day in GIORNI:
+                # ... (logica del vincolo di max 1 buco invariata)
+                works_at_time = [b[(t, day, sched_label)] for sched_label in GLOBAL_SCHEDULING_TIMES]
+                starts = [model.NewBoolVar(f'start_{t}_{day}_{i}') for i in range(len(GLOBAL_SCHEDULING_TIMES))]
+                model.Add(starts[0] == works_at_time[0])
+                for i in range(1, len(GLOBAL_SCHEDULING_TIMES)):
+                    model.AddBoolAnd([works_at_time[i], works_at_time[i-1].Not()]).OnlyEnforceIf(starts[i])
+                    model.AddBoolOr([starts[i], works_at_time[i].Not(), works_at_time[i-1]])
+                model.Add(sum(starts) <= 2)
+
+    # --- 6, 7, 8, 9: OBIETTIVO, RISOLUZIONE, DIAGNOSTICA, OUTPUT (invariati) ---
+    # ... (Il resto del file rimane identico)
+    # Copia e incolla il resto del file da qui in poi dalla versione precedente.
 
     # --- 6. OBIETTIVO DI OTTIMIZZAZIONE (MINIMIZZAZIONE BUCHI) ---
     holes = {}

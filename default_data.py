@@ -25,27 +25,27 @@ def get_default_data():
     data['ORE_SETTIMANALI_CLASSI'] = { "1A": 27, "1B": 27, "2A": 27, "2B": 27, "3A": 27, "3B": 27, "4A": 29, "4B": 29, "5A": 29, "5B": 29, }
     data['MAX_ORE_SETTIMANALI_DOCENTI'] = 22
     data['ASSEGNAZIONE_DOCENTI'] = { 
-        "ANGELINI": {"1A": 11, "1B":11}, 
-        "DOCENTE1": {"1A": 11, "1B":11}, 
-        "DOCENTE3": {"5A": 11, "5B": 11}, 
-        "SABATELLI": {"2A": 9, "2B":9, "copertura":4}, 
-        "SCHIAVONE": {"2A": 11, "2B":11}, 
-        "MARANGI": {"3A": 10, "3B":10, "copertura":2}, 
-        "SIMEONE": {"3A": 11, "3B":11}, 
-        "PEPE": {"4A": 8, "4B":8, "copertura":6}, 
-        "PALMISANO": {"4A": 10, "4B":10, "copertura":2}, 
-        "ZIZZI": {"5A": 11, "5B": 11}, 
-        "CICCIMARRA": {"2A": 3, "2B":3, "copertura":6}, 
+        "ANGELINI": {"1A": 11, "1B":11}, "DOCENTE1": {"1A": 11, "1B":11}, "DOCENTE3": {"5A": 11, "5B": 11}, 
+        "SABATELLI": {"2A": 9, "2B":9, "copertura":4}, "SCHIAVONE": {"2A": 11, "2B":11}, 
+        "MARANGI": {"3A": 10, "3B":10, "copertura":2}, "SIMEONE": {"3A": 11, "3B":11}, 
+        "PEPE": {"4A": 8, "4B":8, "copertura":6}, "PALMISANO": {"4A": 10, "4B":10, "copertura":2}, 
+        "ZIZZI": {"5A": 11, "5B": 11}, "CICCIMARRA": {"2A": 3, "2B":3, "copertura":6}, 
         "MOTORIA": {"5A": 2, "4A": 2, "4B":2, "5B":2 }, "DOCENTE2": {"5A": 3,"5B": 3,"4A": 4, "4B":4}, 
         "LEO": {"1A":2, "1B":2, "2A":2, "2B":2, "3A":2, "3B":2, "4A":2, "4B":2, "5A":2, "5B":2}, 
         "SAVINO": {"1A":2, "1B":2, "2A":2, "2B":2, "3A":3, "3B":3, "4A":3, "4B":3}, 
         "DOCENTE4": {"1A": 1, "1B":1, "3A": 1, "3B":1}, 
     }
 
+    # Vincoli Specifici (con checkbox di attivazione)
     data['GROUP_DAILY_TWO_CLASSES'] = {"ANGELINI","DOCENTE1","DOCENTE3","SABATELLI","SCHIAVONE","MARANGI","SIMEONE","PEPE","PALMISANO","ZIZZI"}
     data['LIMIT_ONE_PER_DAY_PER_CLASS'] = {"MOTORIA","SAVINO"}
     data['ONLY_DAYS'] = { "MOTORIA": {"MAR", "GIO", "VEN"} }
     data['START_AT'] = { "SCHIAVONE": {"LUN": 9, "MAR": 9, "GIO": 9} }
     data['END_AT'] = { "ZIZZI": {"MER": 10}, "PEPE": {"LUN": 10} }
+
+    # Vincoli Generici (nuovi)
+    data['USE_MAX_DAILY_HOURS_PER_CLASS'] = True
+    data['USE_CONSECUTIVE_BLOCKS'] = True
+    data['USE_MAX_ONE_HOLE'] = True
 
     return data
