@@ -26,18 +26,24 @@ ASSEGNAZIONE_SLOT= { "1A": { "LUN":"SLOT_1", "MAR":"SLOT_1", "MER":"SLOT_1", "GI
 
 # --- GRUPPI PER VINCOLI SPECIFICI (de-commentare per attivare) ---
 LIMIT_ONE_PER_DAY_PER_CLASS = {"MOTORIA","SAVINO"}
-MOTORIA_ONLY_DAYS = {"MAR","GIO","VEN"}
 # ATTENZIONE: vincolo molto forte, può rendere il problema insolubile.
 # GROUP_DAILY_TWO_CLASSES = {"ANGELINI","DOCENTE1","DOCENTE3","SABATELLI","SCHIAVONE","CICCIMARRA","MARANGI","SIMEONE","PEPE","PALMISANO"}
-START_AT_9_THREE_TIMES = {"SCHIAVONE"}
-END_AT_10_WEDNESDAY = {"ZIZZI"}
-END_AT_10_MONDAY = {"PEPE"}
+ONLY_DAYS = {
+    "MOTORIA": {"MAR", "GIO", "VEN"}
+}
+START_AT = {
+    "SCHIAVONE": {"LUN": 9, "MAR": 9, "GIO": 9}
+}
+END_AT = {
+    "ZIZZI": {"MER": 10},
+    "PEPE": {"LUN": 10}
+}
 
-if 'START_AT_9_THREE_TIMES' not in globals(): START_AT_9_THREE_TIMES = set()
-if 'END_AT_10_WEDNESDAY' not in globals(): END_AT_10_WEDNESDAY = set()
-if 'END_AT_10_MONDAY' not in globals(): END_AT_10_MONDAY = set()
+# --- INIZIALIZZAZIONE SICURA (non modificare) ---
+if 'ONLY_DAYS' not in globals(): ONLY_DAYS = {}
+if 'START_AT' not in globals(): START_AT = {}
+if 'END_AT' not in globals(): END_AT = {}
 if 'LIMIT_ONE_PER_DAY_PER_CLASS' not in globals(): LIMIT_ONE_PER_DAY_PER_CLASS = set()
-if 'MOTORIA_ONLY_DAYS' not in globals(): MOTORIA_ONLY_DAYS = set(GIORNI)
 if 'GROUP_DAILY_TWO_CLASSES' not in globals(): GROUP_DAILY_TWO_CLASSES = set()
 
 UNIT = 0.5
@@ -112,13 +118,12 @@ if LIMIT_ONE_PER_DAY_PER_CLASS:
     for t in LIMIT_ONE_PER_DAY_PER_CLASS:
         for cl in CLASSI:
             for day in GIORNI: model.Add(sum(x.get((cl, day, s_idx, t), 0) * u for s_idx, (sl, fl, u) in enumerate(class_slots[cl][day])) <= hours_to_units(1))
-if MOTORIA_ONLY_DAYS != set(GIORNI):
-    active_constraints_for_report.append(f"MOTORIA solo nei giorni {MOTORIA_ONLY_DAYS}")
-    for day in set(GIORNI) - MOTORIA_ONLY_DAYS:
-        for cl in ASSEGNAZIONE_DOCENTI.get('MOTORIA', {}):
-            if cl == 'copertura': continue
-            for s_idx, _ in enumerate(class_slots[cl][day]):
-                if (cl, day, s_idx, 'MOTORIA') in x: model.Add(x[(cl, day, s_idx, 'MOTORIA')] == 0)
+if ONLY_DAYS:
+    active_constraints_for_report.append(f"Regole di giorni consentiti per {list(ONLY_DAYS.keys())}")
+    for teacher, allowed_days in ONLY_DAYS.items():
+        for day in set(GIORNI) - allowed_days:
+            for sched_label in GLOBAL_SCHEDULING_TIMES:
+                if (teacher, day, sched_label) in b: model.Add(b[(teacher, day, sched_label)] == 0)
 if GROUP_DAILY_TWO_CLASSES:
     active_constraints_for_report.append(f"Almeno 1h/giorno in entrambe le classi per {GROUP_DAILY_TWO_CLASSES}")
     for t in GROUP_DAILY_TWO_CLASSES:
@@ -126,27 +131,20 @@ if GROUP_DAILY_TWO_CLASSES:
         if len(classes) == 2:
             for day in GIORNI:
                 for cl in classes: model.Add(sum(x.get((cl, day, s_idx, t), 0) * u for s_idx, (sl, fl, u) in enumerate(class_slots[cl][day])) >= hours_to_units(1))
-if START_AT_9_THREE_TIMES:
-    active_constraints_for_report.append(f"Inizio ore 9+ (almeno 3 volte) per {START_AT_9_THREE_TIMES}")
-    for t in START_AT_9_THREE_TIMES:
-        starts_at_9_vars = []
-        for day in GIORNI:
-            works_at_8 = b[(t, day, '8:00')]; works_at_9 = b[(t, day, '9:00')]
-            starts_at_9 = model.NewBoolVar(f"starts_at_9_{t}_{day}")
-            model.AddBoolAnd([works_at_9, works_at_8.Not()]).OnlyEnforceIf(starts_at_9)
-            model.AddBoolOr([starts_at_9, works_at_9.Not(), works_at_8])
-            starts_at_9_vars.append(starts_at_9)
-        model.Add(sum(starts_at_9_vars) >= 3)
-if END_AT_10_WEDNESDAY:
-    active_constraints_for_report.append(f"Fine ore 10 (Mercoledì) per {END_AT_10_WEDNESDAY}")
-    for t in END_AT_10_WEDNESDAY:
-        for sched_label in ['10:00', '11:00', '12:00', '13:00']:
-            if (t, 'MER', sched_label) in b: model.Add(b[(t, 'MER', sched_label)] == 0)
-if END_AT_10_MONDAY:
-    active_constraints_for_report.append(f"Fine ore 10 (Lunedì) per {END_AT_10_MONDAY}")
-    for t in END_AT_10_MONDAY:
-        for sched_label in ['10:00', '11:00', '12:00', '13:00']:
-            if (t, 'LUN', sched_label) in b: model.Add(b[(t, 'LUN', sched_label)] == 0)
+if START_AT:
+    active_constraints_for_report.append(f"Regole di inizio orario per {list(START_AT.keys())}")
+    for teacher, rules in START_AT.items():
+        for day, start_hour in rules.items():
+            for sched_label in GLOBAL_SCHEDULING_TIMES:
+                if int(sched_label.split(':')[0]) < start_hour:
+                    if (teacher, day, sched_label) in b: model.Add(b[(teacher, day, sched_label)] == 0)
+if END_AT:
+    active_constraints_for_report.append(f"Regole di fine orario per {list(END_AT.keys())}")
+    for teacher, rules in END_AT.items():
+        for day, end_hour in rules.items():
+            for sched_label in GLOBAL_SCHEDULING_TIMES:
+                if int(sched_label.split(':')[0]) >= end_hour:
+                    if (teacher, day, sched_label) in b: model.Add(b[(teacher, day, sched_label)] == 0)
 
 print("- Vincolo: Continuità oraria flessibile (max 1 buco) per tutti i docenti")
 for t in teachers:
@@ -169,7 +167,7 @@ def run_diagnostics(solver, has_solution):
         if active_constraints_for_report:
             print("Il modello è insolubile con i seguenti vincoli attivi:")
             for c in active_constraints_for_report: print(f"  - {c}")
-            print("\nSUGGERIMENTO: Prova a disattivare i vincoli più restrittivi (es. START_AT_9, END_AT_10) uno alla volta per trovare il punto di conflitto.")
+            print("\nSUGGERIMENTO: Prova a disattivare i vincoli più restrittivi (es. START_AT, END_AT) uno alla volta per trovare il punto di conflitto.")
         else:
             print("Il modello è insolubile anche senza vincoli specifici. Controllare i dati di base (ore, assegnazioni).")
         return
@@ -213,14 +211,13 @@ def run_diagnostics(solver, has_solution):
                     units_taught = sum(solver.Value(x.get((cl, day, s_idx, t), 0)) * u for s_idx, (_, _, u) in enumerate(class_slots[cl][day]))
                     if units_taught > hours_to_units(1): is_ok = False; details.append(f"  - FAIL: {t} in {cl} il {day} ha {units_to_hours(units_taught)}h (> 1h)")
         report.append(f"[{'PASS' if is_ok else 'FAIL'}] Max 1 ora/giorno/classe per {LIMIT_ONE_PER_DAY_PER_CLASS}"); report.extend(details)
-
-    if MOTORIA_ONLY_DAYS != set(GIORNI):
+    if ONLY_DAYS:
         is_ok = True; details = []
-        for day in set(GIORNI) - MOTORIA_ONLY_DAYS:
-            units_taught = sum(solver.Value(x.get((cl, day, s_idx, 'MOTORIA'), 0)) * u for cl in ASSEGNAZIONE_DOCENTI.get('MOTORIA', {}) for s_idx, (_, _, u) in enumerate(class_slots[cl][day]))
-            if units_taught > 0: is_ok = False; details.append(f"  - FAIL: MOTORIA insegna per {units_to_hours(units_taught)}h il {day} (giorno non consentito).")
-        report.append(f"[{'PASS' if is_ok else 'FAIL'}] MOTORIA solo nei giorni {MOTORIA_ONLY_DAYS}"); report.extend(details)
-
+        for teacher, allowed_days in ONLY_DAYS.items():
+            for day in set(GIORNI) - allowed_days:
+                work_on_forbidden_day = any(solver.Value(b.get((teacher, day, sl), 0)) for sl in GLOBAL_SCHEDULING_TIMES)
+                if work_on_forbidden_day: is_ok = False; details.append(f"  - FAIL: {teacher} lavora il {day}, che non è un giorno consentito.")
+        report.append(f"[{'PASS' if is_ok else 'FAIL'}] Regole di giorni consentiti per {list(ONLY_DAYS.keys())}"); report.extend(details)
     if GROUP_DAILY_TWO_CLASSES:
         is_ok = True; details = []
         for t in GROUP_DAILY_TWO_CLASSES:
@@ -231,27 +228,22 @@ def run_diagnostics(solver, has_solution):
                         units_taught = sum(solver.Value(x.get((cl, day, s_idx, t), 0)) * u for s_idx, (_, _, u) in enumerate(class_slots[cl][day]))
                         if units_taught < hours_to_units(1): is_ok = False; details.append(f"  - FAIL: {t} in {cl} il {day} ha solo {units_to_hours(units_taught)}h (richiesta >= 1h).")
         report.append(f"[{'PASS' if is_ok else 'FAIL'}] Almeno 1h/giorno in entrambe le classi per {GROUP_DAILY_TWO_CLASSES}"); report.extend(details)
-
-    if START_AT_9_THREE_TIMES:
+    if START_AT:
         is_ok = True; details = []
-        for t in START_AT_9_THREE_TIMES:
-            days_started_at_9 = sum(1 for day in GIORNI if solver.Value(b[(t, day, '9:00')]) and not solver.Value(b[(t, day, '8:00')]))
-            if days_started_at_9 < 3: is_ok = False; details.append(f"  - FAIL: {t} ha iniziato alle 9 solo {days_started_at_9} volte (richieste >= 3).")
-        report.append(f"[{'PASS' if is_ok else 'FAIL'}] Inizio ore 9+ (almeno 3 volte) per {START_AT_9_THREE_TIMES}"); report.extend(details)
-
-    if END_AT_10_WEDNESDAY:
+        for teacher, rules in START_AT.items():
+            for day, start_hour in rules.items():
+                for sched_label in GLOBAL_SCHEDULING_TIMES:
+                    if int(sched_label.split(':')[0]) < start_hour:
+                        if solver.Value(b.get((teacher, day, sched_label), 0)): is_ok = False; details.append(f"  - FAIL: {teacher} lavora alle {sched_label} di {day}, violando la regola di inizio ore {start_hour}.")
+        report.append(f"[{'PASS' if is_ok else 'FAIL'}] Regole di inizio orario per {list(START_AT.keys())}"); report.extend(details)
+    if END_AT:
         is_ok = True; details = []
-        for t in END_AT_10_WEDNESDAY:
-            for sl in ['10:00', '11:00', '12:00', '13:00']:
-                if solver.Value(b[(t, 'MER', sl)]): is_ok = False; details.append(f"  - FAIL: {t} lavora alle {sl} di Mercoledì.")
-        report.append(f"[{'PASS' if is_ok else 'FAIL'}] Fine ore 10 (Mercoledì) per {END_AT_10_WEDNESDAY}"); report.extend(details)
-    
-    if END_AT_10_MONDAY:
-        is_ok = True; details = []
-        for t in END_AT_10_MONDAY:
-            for sl in ['10:00', '11:00', '12:00', '13:00']:
-                if solver.Value(b[(t, 'LUN', sl)]): is_ok = False; details.append(f"  - FAIL: {t} lavora alle {sl} di Lunedì.")
-        report.append(f"[{'PASS' if is_ok else 'FAIL'}] Fine ore 10 (Lunedì) per {END_AT_10_MONDAY}"); report.extend(details)
+        for teacher, rules in END_AT.items():
+            for day, end_hour in rules.items():
+                for sched_label in GLOBAL_SCHEDULING_TIMES:
+                    if int(sched_label.split(':')[0]) >= end_hour:
+                        if solver.Value(b.get((teacher, day, sched_label), 0)): is_ok = False; details.append(f"  - FAIL: {teacher} lavora alle {sched_label} di {day}, violando la regola di fine ore {end_hour}.")
+        report.append(f"[{'PASS' if is_ok else 'FAIL'}] Regole di fine orario per {list(END_AT.keys())}"); report.extend(details)
 
     for line in report: print(line)
 
