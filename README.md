@@ -105,6 +105,24 @@ Al termine verrà generato il file `orario_settimanale.xlsx` nella cartella corr
 
 ---
 
+## ▶️ Build
+
+Esegui lo script principale dalla cartella del progetto:
+
+```bash
+pyinstaller run_app.spec
+```
+
+PyInstaller crea le cartelle nel tuo progetto:
+
+* build/
+* dist/
+* GeneratoreOrario.spec
+
+Il tuo file eseguibile si trova all'interno della cartella dist/:  **GeneratoreOrario.exe**
+
+---
+
 ### 📊 Foglio Classi (estratto)
 
 | Ora  | 1A        | 1B        | 2A        | … |
