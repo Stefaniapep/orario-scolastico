@@ -13,7 +13,7 @@ E vincoli specifici:
 
 * [ MOTORIA, SAVINO ] : non fanno mai più di un ora al giorno per classe.
 * [ MOTORIA ] : lezione solo MAR, GIO, VEN.
-* [ ANGELINI, DOCENTE1, DOCENTE3, SABATELLI, SCHIAVONE, CICCIMARRA, MARANGI, SIMEONE, PEPE, PALMISANO ] : fanno almeno un ora al giorno in entrambe le classi a loro assegnate
+* [ ANGELINI, DOCENTE1, DOCENTE3, SABATELLI, SCHIAVONE, MARANGI, SIMEONE, PEPE, PALMISANO ] : fanno almeno un ora al giorno in entrambe le classi a loro assegnate
 * [ SHIAVONE ] : inizia le lezioni alle 9 tre volte a settimana
 * [ ZIZZI ] : termina le lezioni alle ore 10 MER
 * [ PEPE ] : termina le lezioni alle ore 10 LUN
@@ -56,7 +56,6 @@ ORE_SETTIMANALI_CLASSI : {
 	"5A": 29,
 	"5B": 29,
 }
-
 
 ---
 
@@ -104,24 +103,6 @@ py -3 genera_orario.py
 Al termine verrà generato il file `orario_settimanale.xlsx` nella cartella corrente. I fogli creati sono `Classi` e `Docenti`.
 
 ---
-
-## 🛠️ Implementazione (sintesi)
-
-* Modello CP-SAT (OR-Tools) che rappresenta le ore in unità da 0.5h e mappa gli slot orari per ogni classe.
-* Variabili binarie per ogni (classe, giorno, slot, docente) e per le coperture.
-* Vincoli implementati e verificati:
-  * ogni slot di ogni classe è assegnato a esattamente un docente autorizzato;
-  * le ore settimanali di ogni classe corrispondono a `ORE_SETTIMANALI_CLASSI`;
-  * ogni docente rispetta le ore totali settimanali massime (inclusa copertura);
-  * vincoli specifici del README: MOTORIA/SAVINO ≤1h/giorno per classe; MOTORIA solo MAR/GIO/VEN; il gruppo di docenti indicato fa almeno 1h/giorno in entrambe le loro classi; SCHIAVONE (nome nel README trattato come `SCHIAVONE`) inizia alle 9 tre volte a settimana; ZIZZI e PEPE terminano il mercoledì alle 10; le ore giornaliere di uno stesso docente sono consecutive; coperture ripartite su slot disponibili;
-  * un docente non può essere asseganto contemporaneamente in più classi o coperture nello stesso orario.
-* Soluzione: il solver cerca una soluzione fattibile/ottima entro un timeout (configurato nello script). Se trova una soluzione, popola due DataFrame (`Classi`, `Docenti`), individua i "buco" (ore vuote tra lezioni dello stesso docente nello stesso giorno) e salva il tutto in `orario_settimanale.xlsx` (colorazione per giorno).
-* Verifica: dopo la risoluzione lo script stampa controlli che confermano (o segnalano violazioni di) tutti i vincoli principali del README.
-
-Note e assunzioni
-
-* La gestione delle coperture è discretizzata in unità da 0.5h e distribuita su giorni; lo script segnala eventuali vincoli impossibili.
-* Timeout del solver breve per esecuzioni interattive; aumentare `solver.parameters.max_time_in_seconds` nello script se necessario.
 
 ### 📊 Foglio Classi (estratto)
 
