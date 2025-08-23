@@ -76,6 +76,7 @@ Aggiorna pip e installa i pacchetti richiesti:
 
 ```bash
 python -m pip install --upgrade pip
+pip install ortools openpyxl streamlit pandas
 # installa dal requirements
 python -m pip install -r requirements.txt
 ```
@@ -91,7 +92,7 @@ Note utili:
 Esegui lo script principale dalla cartella del progetto:
 
 ```bash
-python genera_orario.py
+streamlit run app.py
 ```
 
 Su Windows, se `python` non è disponibile, puoi usare il launcher:
