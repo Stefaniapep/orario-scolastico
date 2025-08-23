@@ -39,9 +39,14 @@ st.caption("Un'applicazione per configurare e generare l'orario scolastico in mo
 # --- UI DI CONFIGURAZIONE IN UN ACCORDION ---
 with st.expander("⚙️ **Apri per configurare Dati e Vincoli**", expanded=False):
     
-    tab_classi, tab_docenti, tab_vincoli = st.tabs(["**1. Classi e Orari**", "**2. Docenti e Assegnazioni**", "**3. Vincoli Specifici**"])
+    tab_classi, tab_docenti, tab_vincoli_spec, tab_vincoli_gen = st.tabs([
+        "**1. Classi e Orari**", 
+        "**2. Docenti e Assegnazioni**", 
+        "**3. Vincoli Specifici**", 
+        "**4. Vincoli Generici**"  # NUOVA SCHEDA
+    ])
 
-    # --- Scheda Classi e Orari (con UI per Slot migliorata) ---
+    # --- Scheda Classi e Orari ---
     with tab_classi:
         st.subheader("Impostazioni Generali")
         c1, c2 = st.columns(2)
@@ -138,9 +143,9 @@ with st.expander("⚙️ **Apri per configurare Dati e Vincoli**", expanded=Fals
                 if st.button("❌ Rimuovi Docente", key=f"remove_teacher_{teacher}", use_container_width=True, type="secondary"):
                     del st.session_state.config['ASSEGNAZIONE_DOCENTI'][teacher]; st.rerun()
 
-    # --- Scheda Vincoli ---
-    with tab_vincoli:
-        # ... (Questa sezione è corretta e rimane invariata)
+        # --- Scheda Vincoli Specifici ---
+    with tab_vincoli_spec:
+    # ... (Questa sezione è corretta e rimane invariata)
         st.subheader("Personalizzazione dei Vincoli Specifici")
         all_teachers = list(st.session_state.config['ASSEGNAZIONE_DOCENTI'].keys())
         with st.container(border=True):
@@ -191,6 +196,33 @@ with st.expander("⚙️ **Apri per configurare Dati e Vincoli**", expanded=Fals
                         if t not in new_end_at: new_end_at[t] = {}
                         new_end_at[t][d] = h
                     st.session_state.config['END_AT'] = new_end_at
+
+            
+        # --- NUOVA SCHEDA: Vincoli Generici ---
+    with tab_vincoli_gen:
+            st.subheader("Attivazione dei Vincoli Strutturali Generici")
+            st.caption("Questi vincoli definiscono la qualità base dell'orario. Disattivali solo per esperimenti o se il modello fatica a trovare soluzioni.")
+            
+            with st.container(border=True):
+                st.session_state.config['USE_MAX_DAILY_HOURS_PER_CLASS'] = st.checkbox(
+                    "**Massimo 4 ore/giorno per docente nella stessa classe**",
+                    value=st.session_state.config.get('USE_MAX_DAILY_HOURS_PER_CLASS', True),
+                    help="Impedisce che un docente tenga più di 4 ore di lezione nella stessa classe in un singolo giorno."
+                )
+
+            with st.container(border=True):
+                st.session_state.config['USE_CONSECUTIVE_BLOCKS'] = st.checkbox(
+                    "**I blocchi di 2 o 3 ore devono essere consecutivi**",
+                    value=st.session_state.config.get('USE_CONSECUTIVE_BLOCKS', True),
+                    help="Se un docente ha 2 o 3 ore nella stessa classe in un giorno, queste ore devono essere in slot adiacenti (es. 9-10 e 10-11)."
+                )
+
+            with st.container(border=True):
+                st.session_state.config['USE_MAX_ONE_HOLE'] = st.checkbox(
+                    "**Massimo un buco orario al giorno per docente**",
+                    value=st.session_state.config.get('USE_MAX_ONE_HOLE', True),
+                    help="Ogni docente può avere al massimo un'ora di buco tra due lezioni nello stesso giorno. Questo vincolo forza la compattezza dell'orario."
+                )
 
 # --- Pulsante di Generazione e Area Risultati ---
 st.divider()
