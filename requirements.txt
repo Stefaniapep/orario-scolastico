@@ -3,3 +3,7 @@ pandas
 ortools
 streamlit 
 pyinstaller
+bokeh
+altair
+pydeck
+tornado
