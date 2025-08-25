@@ -7,7 +7,7 @@ import os
 
 # Importa il motore di calcolo e i dati di default
 from genera_orario_engine import generate_schedule
-from default_data import get_default_data 
+from utils import load_config
 
 # --- Funzioni di supporto per l'UI ---
 def dataframe_to_excel_bytes(dfs):
@@ -29,7 +29,14 @@ def style_days(row):
 
 # --- INIZIALIZZAZIONE DELLO STATO ---
 if 'config' not in st.session_state:
-    st.session_state.config = get_default_data()
+    config_data = load_config()
+    if config_data:
+        st.session_state.config = config_data
+    else:
+        # Se load_config fallisce, stampa l'errore nell'interfaccia
+        # e ferma l'esecuzione dello script Streamlit.
+        st.error("Caricamento della configurazione fallito. Controlla il file config.json.")
+        st.stop()
 
 # --- INTERFACCIA UTENTE ---
 st.set_page_config(layout="wide", page_title="Generatore Orario Scolastico")
