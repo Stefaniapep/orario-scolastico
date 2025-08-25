@@ -1,9 +1,4 @@
-openpyxl
+streamlit
 pandas
+openpyxl
 ortools
-streamlit 
-pyinstaller
-bokeh
-altair
-pydeck
-tornado

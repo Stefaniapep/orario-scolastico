@@ -12,6 +12,8 @@ from openpyxl import Workbook
 from openpyxl.styles import PatternFill
 import math
 import os
+import sys
+
 
 def generate_schedule(config):
     """
@@ -449,21 +451,27 @@ def generate_schedule(config):
 
     return df_classi, df_docenti, "\n".join(log_messages), diagnostics_string
 
-if __name__ == "__main__":
-    from default_data import get_default_data
-    print("Avvio generazione orario con configurazione di default...")
+def run_engine_in_cli_mode():
+    """Carica config, esegue il motore e stampa i risultati sulla console."""
+    from utils import load_config # Importa qui per evitare dipendenze circolari se utils crescesse
+    print("Avvio generazione orario in modalità CLI con configurazione da config.json...")
     
-    config = get_default_data()
+    config = load_config()
+    if not config:
+        return # Errore già stampato da load_config
+
     df_classi, df_docenti, log_output, diagnostics_output = generate_schedule(config)
     
+    print("\n--- LOG DELL'ELABORAZIONE ---")
+    print(log_output)
+    print("\n--- DIAGNOSTICA E VERIFICA VINCOLI ---")
+    print(diagnostics_output)
+
     if df_classi is not None:
-        print("Orario generato con successo!")
-        print("File salvato: orario_settimanale.xlsx")
-        print(f"Classi processate: {len(config['CLASSI'])}")
-        print(f"Docenti processati: {len(config['ASSEGNAZIONE_DOCENTI'])}")
+        print("\n🎉 Orario generato con successo!")
+        print(f"File salvato: {os.path.abspath('orario_settimanale.xlsx')}")
     else:
-        print("Errore nella generazione dell'orario")
-        print("\nLOG:")
-        print(log_output)
-        print("\nDIAGNOSTICA:")
-        print(diagnostics_output)
+        print("\n❌ Errore nella generazione dell'orario. Controllare i log sopra.")
+
+if __name__ == "__main__":
+    run_engine_in_cli_mode()
