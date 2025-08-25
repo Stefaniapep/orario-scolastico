@@ -448,3 +448,22 @@ def generate_schedule(config):
     df_docenti = pd.read_excel(output_filename, sheet_name="Docenti", index_col=0, engine='openpyxl')
 
     return df_classi, df_docenti, "\n".join(log_messages), diagnostics_string
+
+if __name__ == "__main__":
+    from default_data import get_default_data
+    print("Avvio generazione orario con configurazione di default...")
+    
+    config = get_default_data()
+    df_classi, df_docenti, log_output, diagnostics_output = generate_schedule(config)
+    
+    if df_classi is not None:
+        print("Orario generato con successo!")
+        print("File salvato: orario_settimanale.xlsx")
+        print(f"Classi processate: {len(config['CLASSI'])}")
+        print(f"Docenti processati: {len(config['ASSEGNAZIONE_DOCENTI'])}")
+    else:
+        print("Errore nella generazione dell'orario")
+        print("\nLOG:")
+        print(log_output)
+        print("\nDIAGNOSTICA:")
+        print(diagnostics_output)
