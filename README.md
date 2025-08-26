@@ -77,7 +77,11 @@ Aggiorna pip e installa i pacchetti richiesti:
 ```bash
 python -m pip install --upgrade pip
 pip install ortools openpyxl streamlit pandas
-# installa dal requirements in virtualenv
+```
+
+Oppure installa dal requirements in virtualenv:
+
+```bash
 python -m venv venv
 venv\Scripts\activate
 pip install -r requirements.txt
@@ -85,7 +89,7 @@ pip install -r requirements.txt
 
 Note utili:
 
-- Su Windows, se `python` non è nel PATH, prova `py -3 -m pip install pandas openpyxl`.
+- Su Windows, se `python` non è nel PATH, prova `py -3 -m pip install pip`
 
 ---
 
@@ -94,7 +98,7 @@ Note utili:
 Esegui lo script principale dalla cartella del progetto:
 
 ```bash
-genera_orario_engine.py
+python genera_orario_engine.py
 ```
 
 Oppure avvia l'applicazione completa di interfaccia grafica:
@@ -107,20 +111,15 @@ Al termine verrà generato il file `orario_settimanale.xlsx` nella cartella corr
 
 ---
 
-## ▶️ Build
+## 📦Build
 
 Esegui lo script principale dalla cartella del progetto:
 
 ```bash
-pyinstaller --onefile --clean --collect-all streamlit --collect-all ortools --collect-all openpyxl --collect-all pandas --add-data ".streamlit\config.toml;.streamlit" --add-data "default_data.py;." --add-data "genera_orario_engine.py;." run.py
+ pyinstaller --name "GeneraOrario" --onefile --console --add-data "config.json;." --add-data "utils.py;." --collect-all ortools genera_orario_engine.py
 ```
 
-PyInstaller crea le cartelle nel tuo progetto:
-
-* build/
-* dist/
-
-Il tuo file eseguibile si trova all'interno della cartella dist 
+Il tuo file eseguibile si trova all'interno della cartella dist
 
 ---
 

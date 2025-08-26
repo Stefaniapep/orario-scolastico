@@ -25,7 +25,7 @@
     "LIMIT_ONE_PER_DAY_PER_CLASS": ["MOTORIA","SAVINO"],
     "ONLY_DAYS": { "MOTORIA": ["MAR", "GIO", "VEN"] },
     "START_AT": { "SCHIAVONE": {"LUN": 9, "MAR": 9, "GIO": 9} },
-    "END_AT": { "ZIZZI": {"MER": 10}, "PEPE": {"LUN": 10} },
+    "END_AT": { "ZIZZI": {"MER": 10}, "PEPE": {"LUN": 10, "MAR": 11} },
     "USE_MAX_DAILY_HOURS_PER_CLASS": true,
     "USE_CONSECUTIVE_BLOCKS": true,
     "USE_MAX_ONE_HOLE": true
