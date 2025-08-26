@@ -7,6 +7,21 @@ def load_config(config_path='config.json'):
         with open(config_path, 'r', encoding='utf-8') as f:
             config = json.load(f)
         
+        all_constraint_flags = [
+            # Vincoli Specifici
+            'USE_LIMIT_ONE_PER_DAY',
+            'USE_GROUP_DAILY_TWO_CLASSES',
+            'USE_ONLY_DAYS',
+            'USE_START_AT',
+            'USE_END_AT',
+            # Vincoli Generici
+            'USE_MAX_DAILY_HOURS_PER_CLASS',
+            'USE_CONSECUTIVE_BLOCKS',
+            'USE_MAX_ONE_HOLE'
+        ]
+        for flag in all_constraint_flags:
+            config.setdefault(flag, True)
+
         # Riconverte le liste in set dove necessario
         if 'GROUP_DAILY_TWO_CLASSES' in config:
             config['GROUP_DAILY_TWO_CLASSES'] = set(config['GROUP_DAILY_TWO_CLASSES'])
