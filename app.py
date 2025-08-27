@@ -50,7 +50,7 @@ with st.expander("⚙️ **Apri per configurare Dati e Vincoli**", expanded=Fals
         "**1. Classi e Orari**", 
         "**2. Docenti e Assegnazioni**", 
         "**3. Vincoli Specifici**", 
-        "**4. Vincoli Generici**"  # NUOVA SCHEDA
+        "**4. Vincoli Generici**"
     ])
 
     # --- Scheda Classi e Orari ---
@@ -115,7 +115,6 @@ with st.expander("⚙️ **Apri per configurare Dati e Vincoli**", expanded=Fals
             with st.expander(f"👨‍🏫 **{teacher}**"):
                 assignments = st.session_state.config['ASSEGNAZIONE_DOCENTI'][teacher]
                 
-                # Calcolo e visualizzazione del totale ore
                 copertura_hours = assignments.get('copertura', 0)
                 class_hours = sum(h for c, h in assignments.items() if c != 'copertura')
                 total_hours = class_hours + copertura_hours
@@ -131,7 +130,6 @@ with st.expander("⚙️ **Apri per configurare Dati e Vincoli**", expanded=Fals
                     elif 'copertura' in assignments: del assignments['copertura']
 
                 st.markdown("**Assegnazioni Classi:**")
-                # Griglia interattiva per le assegnazioni
                 assign_data = [{"Classe": cl, "Ore": h} for cl, h in assignments.items() if cl != 'copertura']
                 edited_assign_df = st.data_editor(pd.DataFrame(assign_data), num_rows="dynamic", use_container_width=True, key=f"assign_editor_{teacher}",
                     column_config={
@@ -139,73 +137,108 @@ with st.expander("⚙️ **Apri per configurare Dati e Vincoli**", expanded=Fals
                         "Ore": st.column_config.NumberColumn("Ore", min_value=1, max_value=max_hours, required=True)
                     })
                 
-                # Aggiorna lo stato dalle modifiche della griglia
-                # Rimuove prima le vecchie assegnazioni (tranne copertura) per gestire le cancellazioni
                 for cl in list(assignments.keys()):
                     if cl != 'copertura': del assignments[cl]
-                # Aggiunge le assegnazioni nuove/modificate
                 for _, row in edited_assign_df.iterrows():
                     assignments[row["Classe"]] = row["Ore"]
                 
                 if st.button("❌ Rimuovi Docente", key=f"remove_teacher_{teacher}", use_container_width=True, type="secondary"):
                     del st.session_state.config['ASSEGNAZIONE_DOCENTI'][teacher]; st.rerun()
 
-        # --- Scheda Vincoli Specifici ---
-    with tab_vincoli_spec:
-    # ... (Questa sezione è corretta e rimane invariata)
-        st.subheader("Personalizzazione dei Vincoli Specifici")
-        all_teachers = list(st.session_state.config['ASSEGNAZIONE_DOCENTI'].keys())
-        with st.container(border=True):
-            st.session_state.config['USE_LIMIT_ONE_PER_DAY'] = st.checkbox("**Limite 1 ora/giorno per classe**", value=st.session_state.config.get('USE_LIMIT_ONE_PER_DAY', True))
-            if st.session_state.config['USE_LIMIT_ONE_PER_DAY']:
-                selected = st.multiselect("Seleziona i docenti a cui applicare questo vincolo:", all_teachers, default=list(st.session_state.config.get('LIMIT_ONE_PER_DAY_PER_CLASS', [])))
-                st.session_state.config['LIMIT_ONE_PER_DAY_PER_CLASS'] = set(selected)
-        with st.container(border=True):
-            st.session_state.config['USE_GROUP_DAILY_TWO_CLASSES'] = st.checkbox("**Min 1h/giorno in entrambe le classi assegnate**", value=st.session_state.config.get('USE_GROUP_DAILY_TWO_CLASSES', True))
-            if st.session_state.config['USE_GROUP_DAILY_TWO_CLASSES']:
-                selected = st.multiselect("Seleziona i docenti a cui applicare questo vincolo (solitamente chi ha 2 classi):", all_teachers, default=list(st.session_state.config.get('GROUP_DAILY_TWO_CLASSES', [])))
-                st.session_state.config['GROUP_DAILY_TWO_CLASSES'] = set(selected)
-        with st.container(border=True):
-            st.session_state.config['USE_ONLY_DAYS'] = st.checkbox("**Giorni di lezione specifici**", value=st.session_state.config.get('USE_ONLY_DAYS', True))
-            if st.session_state.config['USE_ONLY_DAYS']:
-                only_days_rules = [{"Docente": teacher, "Giorni Consentiti": ", ".join(sorted(list(days)))} for teacher, days in st.session_state.config['ONLY_DAYS'].items()]
-                edited_only_days_df = st.data_editor(pd.DataFrame(only_days_rules), num_rows="dynamic", use_container_width=True,
-                    column_config={"Docente": st.column_config.SelectboxColumn("Docente", options=all_teachers, required=True), "Giorni Consentiti": st.column_config.TextColumn("Giorni (es: MAR, GIO, VEN)", required=True)})
-                new_only_days = {}
-                for _, row in edited_only_days_df.iterrows():
-                    if row["Docente"] and row["Giorni Consentiti"]:
-                        new_only_days[row["Docente"]] = {day.strip().upper() for day in row["Giorni Consentiti"].split(',') if day.strip()}
-                st.session_state.config['ONLY_DAYS'] = new_only_days
-        c1, c2 = st.columns(2)
-        with c1:
-            with st.container(border=True):
-                st.session_state.config['USE_START_AT'] = st.checkbox("**Orario di inizio specifico**", value=st.session_state.config.get('USE_START_AT', True))
-                if st.session_state.config['USE_START_AT']:
-                    start_rules = [{"Docente": t, "Giorno": d, "Inizia non prima delle": h} for t, r in st.session_state.config['START_AT'].items() for d, h in r.items()]
-                    edited_start_rules = st.data_editor(pd.DataFrame(start_rules), num_rows="dynamic", use_container_width=True,
-                        column_config={"Docente": st.column_config.SelectboxColumn("Docente", options=all_teachers, required=True),"Giorno": st.column_config.SelectboxColumn("Giorno", options=st.session_state.config['GIORNI'], required=True),"Inizia non prima delle": st.column_config.NumberColumn("Ora", min_value=8, max_value=13, required=True)})
-                    new_start_at = {}
-                    for _, row in edited_start_rules.iterrows():
-                        t, d, h = row["Docente"], row["Giorno"], row["Inizia non prima delle"]
-                        if t not in new_start_at: new_start_at[t] = {}
-                        new_start_at[t][d] = h
-                    st.session_state.config['START_AT'] = new_start_at
-        with c2:
-            with st.container(border=True):
-                st.session_state.config['USE_END_AT'] = st.checkbox("**Orario di fine specifico**", value=st.session_state.config.get('USE_END_AT', True))
-                if st.session_state.config['USE_END_AT']:
-                    end_rules = [{"Docente": t, "Giorno": d, "Finisce entro le": h} for t, r in st.session_state.config['END_AT'].items() for d, h in r.items()]
-                    edited_end_rules = st.data_editor(pd.DataFrame(end_rules), num_rows="dynamic", use_container_width=True,
-                        column_config={"Docente": st.column_config.SelectboxColumn("Docente", options=all_teachers, required=True),"Giorno": st.column_config.SelectboxColumn("Giorno", options=st.session_state.config['GIORNI'], required=True),"Finisce entro le": st.column_config.NumberColumn("Ora", min_value=9, max_value=14, required=True)})
-                    new_end_at = {}
-                    for _, row in edited_end_rules.iterrows():
-                        t, d, h = row["Docente"], row["Giorno"], row["Finisce entro le"]
-                        if t not in new_end_at: new_end_at[t] = {}
-                        new_end_at[t][d] = h
-                    st.session_state.config['END_AT'] = new_end_at
-
+        with tab_vincoli_spec:
+            st.subheader("Personalizzazione dei Vincoli Specifici")
+            all_teachers = list(st.session_state.config['ASSEGNAZIONE_DOCENTI'].keys())
             
-        # --- NUOVA SCHEDA: Vincoli Generici ---
+            with st.container(border=True):
+                # Il valore del checkbox è determinato dalla PRESENZA della chiave di configurazione
+                use_constraint = st.checkbox("**Limite 1 ora/giorno per classe**", 
+                                            value='LIMIT_ONE_PER_DAY_PER_CLASS' in st.session_state.config)
+                if use_constraint:
+                    # Se attivo, ci assicuriamo che la chiave esista (come set vuoto se appena creata)
+                    st.session_state.config.setdefault('LIMIT_ONE_PER_DAY_PER_CLASS', set())
+                    selected = st.multiselect("Seleziona i docenti a cui applicare questo vincolo:", all_teachers, 
+                                            default=list(st.session_state.config['LIMIT_ONE_PER_DAY_PER_CLASS']))
+                    st.session_state.config['LIMIT_ONE_PER_DAY_PER_CLASS'] = set(selected)
+                elif 'LIMIT_ONE_PER_DAY_PER_CLASS' in st.session_state.config:
+                    # Se disattivato, RIMUOVIAMO la chiave dalla configurazione
+                    del st.session_state.config['LIMIT_ONE_PER_DAY_PER_CLASS']
+
+            with st.container(border=True):
+                use_constraint = st.checkbox("**Min 1h/giorno in entrambe le classi assegnate**", 
+                                            value='GROUP_DAILY_TWO_CLASSES' in st.session_state.config)
+                if use_constraint:
+                    st.session_state.config.setdefault('GROUP_DAILY_TWO_CLASSES', set())
+                    selected = st.multiselect("Seleziona i docenti a cui applicare questo vincolo (solitamente chi ha 2 classi):", all_teachers, 
+                                            default=list(st.session_state.config['GROUP_DAILY_TWO_CLASSES']))
+                    st.session_state.config['GROUP_DAILY_TWO_CLASSES'] = set(selected)
+                elif 'GROUP_DAILY_TWO_CLASSES' in st.session_state.config:
+                    del st.session_state.config['GROUP_DAILY_TWO_CLASSES']
+
+            with st.container(border=True):
+                use_constraint = st.checkbox("**Giorni di lezione specifici**", 
+                                            value='ONLY_DAYS' in st.session_state.config)
+                if use_constraint:
+                    st.session_state.config.setdefault('ONLY_DAYS', {})
+                    only_days_rules = [{"Docente": teacher, "Giorni Consentiti": ", ".join(sorted(list(days)))} 
+                                    for teacher, days in st.session_state.config['ONLY_DAYS'].items()]
+                    edited_only_days_df = st.data_editor(pd.DataFrame(only_days_rules), num_rows="dynamic", use_container_width=True,
+                        column_config={"Docente": st.column_config.SelectboxColumn("Docente", options=all_teachers, required=True), "Giorni Consentiti": st.column_config.TextColumn("Giorni (es: MAR, GIO, VEN)", required=True)})
+                    new_only_days = {}
+                    for _, row in edited_only_days_df.iterrows():
+                        if row["Docente"] and row["Giorni Consentiti"]:
+                            new_only_days[row["Docente"]] = {day.strip().upper() for day in row["Giorni Consentiti"].split(',') if day.strip()}
+                    st.session_state.config['ONLY_DAYS'] = new_only_days
+                elif 'ONLY_DAYS' in st.session_state.config:
+                    del st.session_state.config['ONLY_DAYS']
+            
+            with st.container(border=True):
+                use_constraint = st.checkbox("**Minimo 2 ore/giorno se presente (per docenti specifici)**", 
+                                            value='MIN_TWO_HOURS_IF_PRESENT_SPECIFIC' in st.session_state.config)
+                if use_constraint:
+                    st.session_state.config.setdefault('MIN_TWO_HOURS_IF_PRESENT_SPECIFIC', set())
+                    selected = st.multiselect("Seleziona i docenti a cui applicare questo vincolo:", all_teachers, 
+                                            default=list(st.session_state.config['MIN_TWO_HOURS_IF_PRESENT_SPECIFIC']))
+                    st.session_state.config['MIN_TWO_HOURS_IF_PRESENT_SPECIFIC'] = set(selected)
+                elif 'MIN_TWO_HOURS_IF_PRESENT_SPECIFIC' in st.session_state.config:
+                    del st.session_state.config['MIN_TWO_HOURS_IF_PRESENT_SPECIFIC']
+
+            c1, c2 = st.columns(2)
+            with c1:
+                with st.container(border=True):
+                    use_constraint = st.checkbox("**Orario di inizio specifico**", 
+                                                value='START_AT' in st.session_state.config)
+                    if use_constraint:
+                        st.session_state.config.setdefault('START_AT', {})
+                        start_rules = [{"Docente": t, "Giorno": d, "Inizia non prima delle": h} for t, r in st.session_state.config['START_AT'].items() for d, h in r.items()]
+                        edited_start_rules = st.data_editor(pd.DataFrame(start_rules), num_rows="dynamic", use_container_width=True,
+                            column_config={"Docente": st.column_config.SelectboxColumn("Docente", options=all_teachers, required=True),"Giorno": st.column_config.SelectboxColumn("Giorno", options=st.session_state.config['GIORNI'], required=True),"Inizia non prima delle": st.column_config.NumberColumn("Ora", min_value=8, max_value=13, required=True)})
+                        new_start_at = {}
+                        for _, row in edited_start_rules.iterrows():
+                            t, d, h = row["Docente"], row["Giorno"], row["Inizia non prima delle"]
+                            if t not in new_start_at: new_start_at[t] = {}
+                            new_start_at[t][d] = h
+                        st.session_state.config['START_AT'] = new_start_at
+                    elif 'START_AT' in st.session_state.config:
+                        del st.session_state.config['START_AT']
+            with c2:
+                with st.container(border=True):
+                    use_constraint = st.checkbox("**Orario di fine specifico**", 
+                                                value='END_AT' in st.session_state.config)
+                    if use_constraint:
+                        st.session_state.config.setdefault('END_AT', {})
+                        end_rules = [{"Docente": t, "Giorno": d, "Finisce entro le": h} for t, r in st.session_state.config['END_AT'].items() for d, h in r.items()]
+                        edited_end_rules = st.data_editor(pd.DataFrame(end_rules), num_rows="dynamic", use_container_width=True,
+                            column_config={"Docente": st.column_config.SelectboxColumn("Docente", options=all_teachers, required=True),"Giorno": st.column_config.SelectboxColumn("Giorno", options=st.session_state.config['GIORNI'], required=True),"Finisce entro le": st.column_config.NumberColumn("Ora", min_value=9, max_value=14, required=True)})
+                        new_end_at = {}
+                        for _, row in edited_end_rules.iterrows():
+                            t, d, h = row["Docente"], row["Giorno"], row["Finisce entro le"]
+                            if t not in new_end_at: new_end_at[t] = {}
+                            new_end_at[t][d] = h
+                        st.session_state.config['END_AT'] = new_end_at
+                    elif 'END_AT' in st.session_state.config:
+                        del st.session_state.config['END_AT']
+            
+    # --- Scheda Vincoli Generici ---
     with tab_vincoli_gen:
             st.subheader("Attivazione dei Vincoli Strutturali Generici")
             st.caption("Questi vincoli definiscono la qualità base dell'orario. Disattivali solo per esperimenti o se il modello fatica a trovare soluzioni.")
@@ -234,7 +267,6 @@ with st.expander("⚙️ **Apri per configurare Dati e Vincoli**", expanded=Fals
 # --- Pulsante di Generazione e Area Risultati ---
 st.divider()
 if st.button("🚀 **GENERA ORARIO**", use_container_width=True, type="primary"):
-    # ... (Questa sezione è corretta e rimane invariata)
     with st.spinner("Elaborazione in corso... Potrebbe richiedere fino a 2 minuti."):
         df_classi, df_docenti, log_output, diagnostics_output = generate_schedule(st.session_state.config)
     if df_classi is not None and df_docenti is not None:

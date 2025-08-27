@@ -1,3 +1,5 @@
+# --- START OF FILE utils.py ---
+
 import json
 import sys
 
@@ -7,19 +9,14 @@ def load_config(config_path='config.json'):
         with open(config_path, 'r', encoding='utf-8') as f:
             config = json.load(f)
         
-        all_constraint_flags = [
-            # Vincoli Specifici
-            'USE_LIMIT_ONE_PER_DAY',
-            'USE_GROUP_DAILY_TWO_CLASSES',
-            'USE_ONLY_DAYS',
-            'USE_START_AT',
-            'USE_END_AT',
-            # Vincoli Generici
+        # Garantisce che solo le flag per i vincoli GENERICI esistano,
+        # con default True. I vincoli specifici sono attivati dalla loro stessa presenza.
+        generic_constraint_flags = [
             'USE_MAX_DAILY_HOURS_PER_CLASS',
             'USE_CONSECUTIVE_BLOCKS',
             'USE_MAX_ONE_HOLE'
         ]
-        for flag in all_constraint_flags:
+        for flag in generic_constraint_flags:
             config.setdefault(flag, True)
 
         # Riconverte le liste in set dove necessario
@@ -27,6 +24,8 @@ def load_config(config_path='config.json'):
             config['GROUP_DAILY_TWO_CLASSES'] = set(config['GROUP_DAILY_TWO_CLASSES'])
         if 'LIMIT_ONE_PER_DAY_PER_CLASS' in config:
             config['LIMIT_ONE_PER_DAY_PER_CLASS'] = set(config['LIMIT_ONE_PER_DAY_PER_CLASS'])
+        if 'MIN_TWO_HOURS_IF_PRESENT_SPECIFIC' in config:
+            config['MIN_TWO_HOURS_IF_PRESENT_SPECIFIC'] = set(config['MIN_TWO_HOURS_IF_PRESENT_SPECIFIC'])
         if 'ONLY_DAYS' in config:
             for teacher, days in config['ONLY_DAYS'].items():
                 config['ONLY_DAYS'][teacher] = set(days)

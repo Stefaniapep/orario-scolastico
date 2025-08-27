@@ -32,20 +32,21 @@ def generate_schedule(config):
     MAX_ORE_SETTIMANALI_DOCENTI = config['MAX_ORE_SETTIMANALI_DOCENTI']
     ASSEGNAZIONE_DOCENTI = config['ASSEGNAZIONE_DOCENTI']
     
-    # Carica le flag per i vincoli specifici
-    GROUP_DAILY_TWO_CLASSES = config.get('GROUP_DAILY_TWO_CLASSES', set()) if config.get('USE_GROUP_DAILY_TWO_CLASSES') else set()
-    LIMIT_ONE_PER_DAY_PER_CLASS = config.get('LIMIT_ONE_PER_DAY_PER_CLASS', set()) if config.get('USE_LIMIT_ONE_PER_DAY') else set()
-    ONLY_DAYS = config.get('ONLY_DAYS', {}) if config.get('USE_ONLY_DAYS') else {}
-    START_AT = config.get('START_AT', {}) if config.get('USE_START_AT') else {}
-    END_AT = config.get('END_AT', {}) if config.get('USE_END_AT') else {}
+    # Carica i vincoli specifici (attivati dalla presenza della chiave)
+    GROUP_DAILY_TWO_CLASSES = config.get('GROUP_DAILY_TWO_CLASSES', set())
+    LIMIT_ONE_PER_DAY_PER_CLASS = config.get('LIMIT_ONE_PER_DAY_PER_CLASS', set())
+    ONLY_DAYS = config.get('ONLY_DAYS', {})
+    START_AT = config.get('START_AT', {})
+    END_AT = config.get('END_AT', {})
+    MIN_TWO_HOURS_IF_PRESENT_SPECIFIC = config.get('MIN_TWO_HOURS_IF_PRESENT_SPECIFIC', set())
     
-    # Carica le flag per i vincoli generici (NUOVO)
+    # Carica le flag per i vincoli generici
     USE_MAX_DAILY_HOURS_PER_CLASS = config.get('USE_MAX_DAILY_HOURS_PER_CLASS', True)
     USE_CONSECUTIVE_BLOCKS = config.get('USE_CONSECUTIVE_BLOCKS', True)
     USE_MAX_ONE_HOLE = config.get('USE_MAX_ONE_HOLE', True)
 
+
     # --- 2. PRE-ELABORAZIONE E DEFINIZIONE STRUTTURE DATI ---
-    # ... (Codice invariato) ...
     UNIT = 0.5
     def hours_to_units(h): return int(round(h / UNIT))
     def units_to_hours(u): return u * UNIT
@@ -93,7 +94,7 @@ def generate_schedule(config):
     else:
         log_messages.append('Prevalidazione dati OK: assegnazioni coprono le richieste di classe e rispettano i massimi docenti.')
 
-    # --- 3. MODELLO E VARIABILI (invariato) ---
+    # --- 3. MODELLO E VARIABILI ---
     model = cp_model.CpModel()
     x = { (cl, day, s_idx, t): model.NewBoolVar(f"x_{cl}_{day}_{s_idx}_{t}") for cl in CLASSI for day in GIORNI for s_idx, _ in enumerate(class_slots[cl][day]) for t in allowed_teachers_per_class[cl] }
     copertura_vars = { (day, s_idx, t): (model.NewBoolVar(f"cop_{day}_{s_idx}_{t}"), sl, fl, u) for day, slots in copertura_slots.items() for s_idx, (sl, fl, u) in enumerate(slots) for t in teachers if ASSEGNAZIONE_DOCENTI.get(t, {}).get('copertura', 0) > 0 }
@@ -132,7 +133,7 @@ def generate_schedule(config):
     log_messages.append("\nApplicazione vincoli...")
     active_constraints_for_report = []
 
-    # --- VINCOLI GENERICI (ORA CONDIZIONALI) ---
+    # --- VINCOLI GENERICI ---
     if USE_MAX_DAILY_HOURS_PER_CLASS:
         log_messages.append("- Vincolo ATTIVO: Massimo 4 ore per docente per classe al giorno")
         for t, assignments in ASSEGNAZIONE_DOCENTI.items():
@@ -142,18 +143,20 @@ def generate_schedule(config):
                     daily_class_units = sum(x.get((cl, day, s_idx, t), 0) * u for s_idx, (sl, fl, u) in enumerate(class_slots[cl][day]))
                     model.Add(daily_class_units <= hours_to_units(4))
 
-    # --- VINCOLI SPECIFICI (invariati) ---
+    # --- VINCOLI SPECIFICI (attivati dalla presenza dei dati) ---
     if LIMIT_ONE_PER_DAY_PER_CLASS:
         active_constraints_for_report.append(f"Max 1 ora/giorno/classe per {LIMIT_ONE_PER_DAY_PER_CLASS}")
         for t in LIMIT_ONE_PER_DAY_PER_CLASS:
             for cl in CLASSI:
                 for day in GIORNI: model.Add(sum(x.get((cl, day, s_idx, t), 0) * u for s_idx, (sl, fl, u) in enumerate(class_slots[cl][day])) <= hours_to_units(1))
+    
     if ONLY_DAYS:
         active_constraints_for_report.append(f"Regole di giorni consentiti per {list(ONLY_DAYS.keys())}")
         for teacher, allowed_days in ONLY_DAYS.items():
             for day in set(GIORNI) - allowed_days:
                 for sched_label in GLOBAL_SCHEDULING_TIMES:
                     if (teacher, day, sched_label) in b: model.Add(b[(teacher, day, sched_label)] == 0)
+    
     if GROUP_DAILY_TWO_CLASSES:
         active_constraints_for_report.append(f"Almeno 1h/giorno in entrambe le classi per {GROUP_DAILY_TWO_CLASSES}")
         for t in GROUP_DAILY_TWO_CLASSES:
@@ -161,6 +164,7 @@ def generate_schedule(config):
             if len(classes) == 2:
                 for day in GIORNI:
                     for cl in classes: model.Add(sum(x.get((cl, day, s_idx, t), 0) * u for s_idx, (sl, fl, u) in enumerate(class_slots[cl][day])) >= hours_to_units(1))
+    
     if START_AT:
         active_constraints_for_report.append(f"Regole di inizio orario per {list(START_AT.keys())}")
         for teacher, rules in START_AT.items():
@@ -168,6 +172,7 @@ def generate_schedule(config):
                 for sched_label in GLOBAL_SCHEDULING_TIMES:
                     if int(sched_label.split(':')[0]) < start_hour:
                         if (teacher, day, sched_label) in b: model.Add(b[(teacher, day, sched_label)] == 0)
+    
     if END_AT:
         active_constraints_for_report.append(f"Regole di fine orario per {list(END_AT.keys())}")
         for teacher, rules in END_AT.items():
@@ -176,8 +181,22 @@ def generate_schedule(config):
                     if int(sched_label.split(':')[0]) >= end_hour:
                         if (teacher, day, sched_label) in b: model.Add(b[(teacher, day, sched_label)] == 0)
 
+    if MIN_TWO_HOURS_IF_PRESENT_SPECIFIC:
+        active_constraints_for_report.append(f"Minimo 2 ore/giorno se presente per {MIN_TWO_HOURS_IF_PRESENT_SPECIFIC}")
+        for t in MIN_TWO_HOURS_IF_PRESENT_SPECIFIC:
+            for day in GIORNI:
+                daily_units_for_teacher = model.NewIntVar(0, hours_to_units(MAX_ORE_SETTIMANALI_DOCENTI), f'daily_units_teach_{t}_{day}')
+                class_vars_for_day = [x.get((cl, day, s_idx, t), 0) * u for cl in ASSEGNAZIONE_DOCENTI.get(t, {}) if cl != 'copertura' for s_idx, (_, _, u) in enumerate(class_slots[cl][day])]
+                copertura_vars_for_day = [var * u for (d, s_idx, tt), (var, sl, fl, u) in copertura_vars.items() if tt == t and d == day]
+                all_units_for_day = class_vars_for_day + copertura_vars_for_day
+                if all_units_for_day:
+                    model.Add(daily_units_for_teacher == sum(all_units_for_day))
+                    is_present_today = model.NewBoolVar(f'is_present_today_{t}_{day}')
+                    model.Add(daily_units_for_teacher > 0).OnlyEnforceIf(is_present_today)
+                    model.Add(daily_units_for_teacher == 0).OnlyEnforceIf(is_present_today.Not())
+                    model.Add(daily_units_for_teacher >= hours_to_units(2)).OnlyEnforceIf(is_present_today)
 
-    # --- ALTRI VINCOLI GENERICI (ORA CONDIZIONALI) ---
+    # --- ALTRI VINCOLI GENERICI ---
     if USE_CONSECUTIVE_BLOCKS:
         log_messages.append("- Vincolo ATTIVO: Blocchi di 2 o 3 ore in una classe devono essere consecutivi")
         for t in teachers:
@@ -185,7 +204,6 @@ def generate_schedule(config):
             for cl in ASSEGNAZIONE_DOCENTI.get(t, {}):
                 if cl == 'copertura': continue
                 for day in GIORNI:
-                    # ... (logica del vincolo di consecutività invariata)
                     daily_class_units = sum(x.get((cl, day, s_idx, t), 0) * u for s_idx, (sl, fl, u) in enumerate(class_slots[cl][day]))
                     is_2_or_3_hours = model.NewBoolVar(f'is_2_or_3h_{t}_{cl}_{day}')
                     is_exactly_two = model.NewBoolVar(f'exactly_2h_{t}_{cl}_{day}')
@@ -218,7 +236,6 @@ def generate_schedule(config):
         log_messages.append("- Vincolo ATTIVO: Continuità oraria flessibile (max 1 buco) per tutti i docenti")
         for t in teachers:
             for day in GIORNI:
-                # ... (logica del vincolo di max 1 buco invariata)
                 works_at_time = [b[(t, day, sched_label)] for sched_label in GLOBAL_SCHEDULING_TIMES]
                 starts = [model.NewBoolVar(f'start_{t}_{day}_{i}') for i in range(len(GLOBAL_SCHEDULING_TIMES))]
                 model.Add(starts[0] == works_at_time[0])
@@ -227,12 +244,9 @@ def generate_schedule(config):
                     model.AddBoolOr([starts[i], works_at_time[i].Not(), works_at_time[i-1]])
                 model.Add(sum(starts) <= 2)
 
-    # --- 6, 7, 8, 9: OBIETTIVO, RISOLUZIONE, DIAGNOSTICA, OUTPUT (invariati) ---
-    # ... (Il resto del file rimane identico)
-    # Copia e incolla il resto del file da qui in poi dalla versione precedente.
-
     # --- 6. OBIETTIVO DI OTTIMIZZAZIONE (MINIMIZZAZIONE BUCHI) ---
-    holes = {}
+    # Questa sezione è INCONDIZIONATA: l'obiettivo è sempre minimizzare i buchi.
+    holes = {} # <-- INIZIALIZZAZIONE CRUCIALE
     for t in teachers:
         for day in GIORNI:
             works_at_time = [b[(t, day, sl)] for sl in GLOBAL_SCHEDULING_TIMES]
@@ -253,6 +267,7 @@ def generate_schedule(config):
                 model.AddBoolAnd([works_at_time[i].Not(), has_worked_before[i], will_work_after[i]]).OnlyEnforceIf(h)
                 model.AddBoolOr([h, works_at_time[i], has_worked_before[i].Not(), will_work_after[i].Not()])
                 holes[(t, day, sl)] = h
+    
     total_penalty = []
     for t in teachers:
         for day in GIORNI:
@@ -288,6 +303,7 @@ def generate_schedule(config):
         else:
             diagnostics_report.append("Il modello è insolubile anche senza vincoli specifici. Controllare i dati di base (ore, assegnazioni).")
     else:
+        #... (Il resto della diagnostica e dell'output non cambia)
         diagnostics_report.append("--- VERIFICA DEI VINCOLI SULLA SOLUZIONE TROVATA ---")
         
         is_ok_class_hours = True; details_class_hours = []
@@ -306,39 +322,42 @@ def generate_schedule(config):
                 if required != found: is_ok_teacher_assign = False; details_teacher_assign.append(f"  - FAIL: Docente {t} in Classe {cl} - Richieste: {units_to_hours(required)}h, Trovate: {units_to_hours(found)}h")
         diagnostics_report.append(f"[{'PASS' if is_ok_teacher_assign else 'FAIL'}] Ore specifiche Docente-Classe"); diagnostics_report.extend(details_teacher_assign)
         
-        is_ok_max_daily = True; details_max_daily = []
-        for t, assignments in ASSEGNAZIONE_DOCENTI.items():
-            for cl in assignments:
-                if cl == 'copertura': continue
-                for day in GIORNI:
-                    found_units = sum(solver.Value(x.get((cl, day, s_idx, t), 0)) * u for s_idx, (_, _, u) in enumerate(class_slots[cl][day]))
-                    if found_units > hours_to_units(4): is_ok_max_daily = False; details_max_daily.append(f"  - FAIL: {t} in {cl} il {day} ha {units_to_hours(found_units)}h (> 4h).")
-        diagnostics_report.append(f"[{'PASS' if is_ok_max_daily else 'FAIL'}] Massimo 4 ore/giorno per docente nella stessa classe"); diagnostics_report.extend(details_max_daily)
+        if USE_MAX_DAILY_HOURS_PER_CLASS:
+            is_ok_max_daily = True; details_max_daily = []
+            for t, assignments in ASSEGNAZIONE_DOCENTI.items():
+                for cl in assignments:
+                    if cl == 'copertura': continue
+                    for day in GIORNI:
+                        found_units = sum(solver.Value(x.get((cl, day, s_idx, t), 0)) * u for s_idx, (_, _, u) in enumerate(class_slots[cl][day]))
+                        if found_units > hours_to_units(4): is_ok_max_daily = False; details_max_daily.append(f"  - FAIL: {t} in {cl} il {day} ha {units_to_hours(found_units)}h (> 4h).")
+            diagnostics_report.append(f"[{'PASS' if is_ok_max_daily else 'FAIL'}] Massimo 4 ore/giorno per docente nella stessa classe"); diagnostics_report.extend(details_max_daily)
 
-        max_blocks_found = 0; violations = []
-        for t in teachers:
-            for day in GIORNI:
-                works_at_time = [solver.Value(b.get((t, day, sl), 0)) for sl in GLOBAL_SCHEDULING_TIMES]
-                if not any(works_at_time): continue
-                num_blocks = sum([works_at_time[0]] + [1 for i in range(1, len(works_at_time)) if works_at_time[i] and not works_at_time[i-1]])
-                max_blocks_found = max(max_blocks_found, num_blocks)
-                if num_blocks > 2: violations.append(f"  - FAIL: {t} il {day} ha {num_blocks-1} buchi.")
-        diagnostics_report.append(f"[{'PASS' if max_blocks_found <= 2 else 'FAIL'}] Continuità oraria (max 1 buco): Max blocchi trovati: {max_blocks_found}."); diagnostics_report.extend(violations)
-
-        is_ok_consecutive = True; details_consecutive = []
-        for t in teachers:
-            if t in LIMIT_ONE_PER_DAY_PER_CLASS: continue
-            for cl in ASSEGNAZIONE_DOCENTI.get(t, {}):
-                if cl == 'copertura': continue
+        if USE_MAX_ONE_HOLE:
+            max_blocks_found = 0; violations = []
+            for t in teachers:
                 for day in GIORNI:
-                    daily_units = sum(solver.Value(x.get((cl, day, s_idx, t), 0)) * u for s_idx, (_, _, u) in enumerate(class_slots[cl][day]))
-                    if daily_units in [hours_to_units(2), hours_to_units(3)]:
-                        indices = [i for i, sl in enumerate(GLOBAL_SCHEDULING_TIMES) if any(solver.Value(x.get((cl, day, s_idx, t), 0)) for s_idx, (s_label, _, _) in enumerate(class_slots[cl][day]) if s_label == sl)]
-                        if len(indices) > 0 and (max(indices) - min(indices) > len(indices) - 1):
-                            is_ok_consecutive = False
-                            taught_at = [GLOBAL_SCHEDULING_TIMES[i] for i in indices]
-                            details_consecutive.append(f"  - FAIL: {t} in {cl} il {day} ha {units_to_hours(daily_units)} ore non consecutive ({', '.join(taught_at)}).")
-        diagnostics_report.append(f"[{'PASS' if is_ok_consecutive else 'FAIL'}] Lezioni di 2 o 3 ore sono consecutive"); diagnostics_report.extend(details_consecutive)
+                    works_at_time = [solver.Value(b.get((t, day, sl), 0)) for sl in GLOBAL_SCHEDULING_TIMES]
+                    if not any(works_at_time): continue
+                    num_blocks = sum([works_at_time[0]] + [1 for i in range(1, len(works_at_time)) if works_at_time[i] and not works_at_time[i-1]])
+                    max_blocks_found = max(max_blocks_found, num_blocks)
+                    if num_blocks > 2: violations.append(f"  - FAIL: {t} il {day} ha {num_blocks-1} buchi.")
+            diagnostics_report.append(f"[{'PASS' if max_blocks_found <= 2 else 'FAIL'}] Continuità oraria (max 1 buco): Max blocchi trovati: {max_blocks_found}."); diagnostics_report.extend(violations)
+
+        if USE_CONSECUTIVE_BLOCKS:
+            is_ok_consecutive = True; details_consecutive = []
+            for t in teachers:
+                if t in LIMIT_ONE_PER_DAY_PER_CLASS: continue
+                for cl in ASSEGNAZIONE_DOCENTI.get(t, {}):
+                    if cl == 'copertura': continue
+                    for day in GIORNI:
+                        daily_units = sum(solver.Value(x.get((cl, day, s_idx, t), 0)) * u for s_idx, (_, _, u) in enumerate(class_slots[cl][day]))
+                        if daily_units in [hours_to_units(2), hours_to_units(3)]:
+                            indices = [i for i, sl in enumerate(GLOBAL_SCHEDULING_TIMES) if any(solver.Value(x.get((cl, day, s_idx, t), 0)) for s_idx, (s_label, _, _) in enumerate(class_slots[cl][day]) if s_label == sl)]
+                            if len(indices) > 0 and (max(indices) - min(indices) > len(indices) - 1):
+                                is_ok_consecutive = False
+                                taught_at = [GLOBAL_SCHEDULING_TIMES[i] for i in indices]
+                                details_consecutive.append(f"  - FAIL: {t} in {cl} il {day} ha {units_to_hours(daily_units)} ore non consecutive ({', '.join(taught_at)}).")
+            diagnostics_report.append(f"[{'PASS' if is_ok_consecutive else 'FAIL'}] Lezioni di 2 o 3 ore sono consecutive"); diagnostics_report.extend(details_consecutive)
 
         if LIMIT_ONE_PER_DAY_PER_CLASS:
             is_ok = True; details = []
@@ -386,6 +405,20 @@ def generate_schedule(config):
                         if int(sched_label.split(':')[0]) >= end_hour:
                             if solver.Value(b.get((teacher, day, sched_label), 0)): is_ok = False; details.append(f"  - FAIL: {teacher} lavora alle {sched_label} di {day}, violando la regola di fine ore {end_hour}.")
             diagnostics_report.append(f"[{'PASS' if is_ok else 'FAIL'}] Regole di fine orario per {list(END_AT.keys())}"); diagnostics_report.extend(details)
+
+        if MIN_TWO_HOURS_IF_PRESENT_SPECIFIC:
+            is_ok = True; details = []
+            for t in MIN_TWO_HOURS_IF_PRESENT_SPECIFIC:
+                for day in GIORNI:
+                    daily_total_units = 0
+                    for cl in ASSEGNAZIONE_DOCENTI.get(t, {}):
+                        if cl == 'copertura': continue
+                        daily_total_units += sum(solver.Value(x.get((cl, day, s_idx, t), 0)) * u for s_idx, (_, _, u) in enumerate(class_slots[cl][day]))
+                    daily_total_units += sum(solver.Value(var) * u for (d, s_idx, tt), (var, _, _, u) in copertura_vars.items() if tt == t and d == day)
+                    if daily_total_units > 0 and daily_total_units < hours_to_units(2):
+                        is_ok = False
+                        details.append(f"  - FAIL: Docente {t} il {day} ha solo {units_to_hours(daily_total_units)}h di lezione (richieste min 2h se presente).")
+            diagnostics_report.append(f"[{'PASS' if is_ok else 'FAIL'}] Minimo 2 ore/giorno se presente per {MIN_TWO_HOURS_IF_PRESENT_SPECIFIC}"); diagnostics_report.extend(details)
 
         total_hole_units = sum(solver.Value(h) for h in holes.values())
         non_2h_hole_days = 0
@@ -452,21 +485,15 @@ def generate_schedule(config):
     return df_classi, df_docenti, "\n".join(log_messages), diagnostics_string
 
 def run_engine_in_cli_mode():
-    """Carica config, esegue il motore e stampa i risultati sulla console."""
-    from utils import load_config # Importa qui per evitare dipendenze circolari se utils crescesse
+    from utils import load_config
     print("Avvio generazione orario in modalità CLI con configurazione da config.json...")
-    
     config = load_config()
-    if not config:
-        return # Errore già stampato da load_config
-
+    if not config: return
     df_classi, df_docenti, log_output, diagnostics_output = generate_schedule(config)
-    
     print("\n--- LOG DELL'ELABORAZIONE ---")
     print(log_output)
     print("\n--- DIAGNOSTICA E VERIFICA VINCOLI ---")
     print(diagnostics_output)
-
     if df_classi is not None:
         print("\n🎉 Orario generato con successo!")
         print(f"File salvato: {os.path.abspath('orario_settimanale.xlsx')}")
