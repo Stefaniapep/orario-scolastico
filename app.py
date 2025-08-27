@@ -7,7 +7,7 @@ import os
 
 # Importa il motore di calcolo e i dati di default
 from genera_orario_engine import generate_schedule
-from utils import load_config
+from utils import load_config, save_config
 
 # --- Funzioni di supporto per l'UI ---
 def dataframe_to_excel_bytes(dfs):
@@ -18,6 +18,7 @@ def dataframe_to_excel_bytes(dfs):
     processed_data = output.getvalue()
     return processed_data
 
+
 def style_days(row):
     day_colors = {"LUN": "#FFFFCC", "MAR": "#CCFFCC", "MER": "#CCE5FF", "GIO": "#FFDDCC", "VEN": "#E5CCFF"}
     day = row.name[:3]
@@ -26,6 +27,143 @@ def style_days(row):
         style = f'background-color: {color}; color: black;'
         return [style] * len(row)
     return [''] * len(row)
+
+
+# --- VALIDAZIONE CONFIG ---
+def _is_half_hour_multiple(v):
+    try:
+        return abs((float(v) * 2) - round(float(v) * 2)) < 1e-6
+    except Exception:
+        return False
+
+
+def validate_config(cfg: dict):
+    """Valida la configurazione costruita via UI. Ritorna (ok, errors, warnings)."""
+    errors = []
+    warnings = []
+
+    # Chiavi essenziali
+    required_keys = [
+        'GIORNI', 'CLASSI', 'SLOT_1', 'SLOT_2', 'SLOT_3',
+        'ASSEGNAZIONE_SLOT', 'ORE_SETTIMANALI_CLASSI',
+        'MAX_ORE_SETTIMANALI_DOCENTI', 'ASSEGNAZIONE_DOCENTI'
+    ]
+    for k in required_keys:
+        if k not in cfg:
+            errors.append(f"Chiave di configurazione mancante: {k}")
+
+    if errors:
+        return False, errors, warnings
+
+    # GIORNI
+    giorni = cfg['GIORNI']
+    if not isinstance(giorni, (list, tuple)) or not giorni:
+        errors.append("'GIORNI' deve essere una lista non vuota.")
+    if len(set(giorni)) != len(giorni):
+        warnings.append("'GIORNI' contiene duplicati. Verranno considerati una sola volta.")
+
+    # SLOT
+    for slot_name in ['SLOT_1', 'SLOT_2', 'SLOT_3']:
+        slot = cfg.get(slot_name, [])
+        if not isinstance(slot, (list, tuple)) or len(slot) == 0:
+            errors.append(f"'{slot_name}' deve essere una lista non vuota di [fascia_oraria, durata].")
+            continue
+        for idx, item in enumerate(slot):
+            if not isinstance(item, (list, tuple)) or len(item) != 2:
+                errors.append(f"{slot_name}[{idx}] non è una coppia valida [fascia_oraria, durata].")
+                continue
+            fascia, durata = item
+            if not isinstance(fascia, str) or '-' not in fascia:
+                warnings.append(f"{slot_name}[{idx}] ha una fascia oraria non standard: '{fascia}'. Formato atteso 'H:MM-H:MM'.")
+            try:
+                d = float(durata)
+                if d <= 0:
+                    errors.append(f"{slot_name}[{idx}] ha una durata <= 0.")
+                elif not _is_half_hour_multiple(d):
+                    warnings.append(f"{slot_name}[{idx}] durata {d} non è multiplo di 0.5h: sarà arrotondata internamente.")
+            except Exception:
+                errors.append(f"{slot_name}[{idx}] durata non numerica: '{durata}'.")
+
+    # CLASSI
+    classi = cfg['CLASSI']
+    if not isinstance(classi, (list, tuple)) or not classi:
+        errors.append("'CLASSI' deve essere una lista non vuota.")
+
+    # ORE_SETTIMANALI_CLASSI
+    ore_cl = cfg['ORE_SETTIMANALI_CLASSI']
+    for cl in classi:
+        v = ore_cl.get(cl)
+        if v is None:
+            errors.append(f"Manca 'ORE_SETTIMANALI_CLASSI' per la classe {cl}.")
+            continue
+        try:
+            vv = int(v)
+            if vv <= 0:
+                errors.append(f"Ore settimanali per {cl} devono essere > 0.")
+        except Exception:
+            errors.append(f"Ore settimanali per {cl} non numeriche: '{v}'.")
+
+    # ASSEGNAZIONE_SLOT per ogni classe e giorno
+    valid_slots = {"SLOT_1", "SLOT_2", "SLOT_3"}
+    for cl in classi:
+        per_class = cfg['ASSEGNAZIONE_SLOT'].get(cl)
+        if per_class is None:
+            errors.append(f"Manca 'ASSEGNAZIONE_SLOT' per la classe {cl}.")
+            continue
+        for day in giorni:
+            slot_val = per_class.get(day)
+            if slot_val not in valid_slots:
+                errors.append(f"ASSEGNAZIONE_SLOT per {cl} nel giorno {day} non valido: {slot_val}.")
+
+    # MAX_ORE_SETTIMANALI_DOCENTI
+    try:
+        max_ore_doc = int(cfg['MAX_ORE_SETTIMANALI_DOCENTI'])
+        if max_ore_doc <= 0:
+            errors.append("'MAX_ORE_SETTIMANALI_DOCENTI' deve essere > 0.")
+    except Exception:
+        errors.append("'MAX_ORE_SETTIMANALI_DOCENTI' non è numerico.")
+
+    # ASSEGNAZIONE_DOCENTI
+    per_classe_assegnate = {cl: 0 for cl in classi}
+    for docente, assignments in cfg['ASSEGNAZIONE_DOCENTI'].items():
+        if not isinstance(assignments, dict):
+            errors.append(f"Assegnazioni del docente {docente} non valide.")
+            continue
+        total_doc_hours = 0
+        for k, v in assignments.items():
+            if k == 'copertura':
+                try:
+                    cov = int(v)
+                    if cov < 0:
+                        errors.append(f"Docente {docente}: ore di copertura negative.")
+                    total_doc_hours += max(0, cov)
+                except Exception:
+                    errors.append(f"Docente {docente}: ore di copertura non numeriche: '{v}'.")
+                continue
+            if k not in classi:
+                errors.append(f"Docente {docente}: classe '{k}' non esiste nella lista CLASSI.")
+                continue
+            try:
+                hv = int(v)
+                if hv <= 0:
+                    errors.append(f"Docente {docente} in {k}: ore devono essere > 0.")
+                else:
+                    per_classe_assegnate[k] += hv
+                    total_doc_hours += hv
+            except Exception:
+                errors.append(f"Docente {docente} in {k}: ore non numeriche: '{v}'.")
+        if 'MAX_ORE_SETTIMANALI_DOCENTI' in cfg and total_doc_hours > cfg['MAX_ORE_SETTIMANALI_DOCENTI']:
+            errors.append(f"Docente {docente}: ore totali assegnate {total_doc_hours} superano il massimo {cfg['MAX_ORE_SETTIMANALI_DOCENTI']}.")
+
+    # Copertura ore richieste per classe
+    for cl in classi:
+        req = ore_cl.get(cl, 0)
+        got = per_classe_assegnate.get(cl, 0)
+        if got < req:
+            errors.append(f"Classe {cl}: ore assegnate {got} < richieste {req}.")
+
+    return len(errors) == 0, errors, warnings
+
 
 # --- INIZIALIZZAZIONE DELLO STATO ---
 if 'config' not in st.session_state:
@@ -267,6 +405,23 @@ with st.expander("⚙️ **Apri per configurare Dati e Vincoli**", expanded=Fals
 # --- Pulsante di Generazione e Area Risultati ---
 st.divider()
 if st.button("🚀 **GENERA ORARIO**", use_container_width=True, type="primary"):
+    # Valida e salva il config prima di generare
+    ok, errs, warns = validate_config(st.session_state.config)
+    if warns:
+        for w in warns:
+            st.warning(w)
+    if not ok:
+        for e in errs:
+            st.error(e)
+        st.stop()
+    # Salvataggio su config.json (accanto all'eseguibile o alla sorgente)
+    try:
+        saved_path = save_config(st.session_state.config)
+        st.success(f"Configurazione salvata in: `{saved_path}`")
+    except Exception as e:
+        st.error(f"Errore nel salvataggio della configurazione: {e}")
+        st.stop()
+
     with st.spinner("Elaborazione in corso... Potrebbe richiedere fino a 2 minuti."):
         df_classi, df_docenti, log_output, diagnostics_output = generate_schedule(st.session_state.config)
     if df_classi is not None and df_docenti is not None:

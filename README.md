@@ -1,61 +1,70 @@
+
 # 📘 Generatore Orario Classi e Docenti
 
-Genera automaticamente gli orari settimanali per un insieme di classi e li assegna a un gruppo di docenti, rispettando vincoli generici:
+Genera automaticamente l'orario settimanale per un insieme di classi e docenti, rispettando vincoli generici e specifici configurabili tramite file `config.json` o tramite GUI (Streamlit).
 
-* Slot orari delle classi sono variabili e devono sempre essere assegnati ad un docente.
-* Ogni giorno nelle classi ci devono essere almeno due docenti diversi.
-* Ogni giorno le ore di uno stesso docente sono consecutive.
-* Ogni docente lavora un max di ore lavorative settimanali (lezioni in classe + coperture).
-* Ogni docente ha le sue assegnazioni predefinite
-* Identificazione delle ore di buco degli insegnanti (ore di non lezione e non copertura fra una lezione e l'altra).
+Caratteristiche principali dell'engine:
 
-E vincoli specifici:
+- Slot orari configurabili per giorno e classe (fino a 3 insiemi di slot: `SLOT_1`, `SLOT_2`, `SLOT_3`).
+- Assegnazione docenti per classe e ore settimanali, con eventuali ore di copertura.
+- Obiettivo: minimizzazione dei buchi orari dei docenti (0 o 2 ore preferibili).
+- Vincoli generici (attivabili/disattivabili con flag booleani nel config):
 
-* [ MOTORIA, SAVINO ] : non fanno mai più di un ora al giorno per classe.
-* [ MOTORIA ] : lezione solo MAR, GIO, VEN.
-* [ ANGELINI, DOCENTE1, DOCENTE3, SABATELLI, SCHIAVONE, MARANGI, SIMEONE, PEPE, PALMISANO ] : fanno almeno un ora al giorno in entrambe le classi a loro assegnate
-* [ SHIAVONE ] : inizia le lezioni alle 9 tre volte a settimana
-* [ ZIZZI ] : termina le lezioni alle ore 10 MER
-* [ PEPE ] : termina le lezioni alle ore 10 LUN
+  -`USE_MAX_DAILY_HOURS_PER_CLASS` (default: true): massimo 4 ore/giorno per docente nella stessa classe.
 
-Il risultato viene esportato in un file Excel (`.xlsx`) :
+  -`USE_CONSECUTIVE_BLOCKS` (default: true): se un docente fa 2 o 3 ore nella stessa classe in un giorno, devono essere consecutive.
 
-Foglio **Classi**
+  -`USE_MAX_ONE_HOLE` (default: true): al massimo un buco orario al giorno per docente.
+- Vincoli specifici (attivati dalla presenza dei dati):
 
-* **Colonne:** le classi (`1A, 1B, 2A, …, coopertura, buco`).
-* **Righe:** slot orari (`Lun1 … Ven5`) con un colore diverso per giorno della settimana.
-* **Valori:** materia assegnata in quell’ora (es. `MAT (Doc1), ITA(Doc3), ...`).
+  -`LIMIT_ONE_PER_DAY_PER_CLASS`: insieme di docenti per cui vale max 1 ora/giorno nella stessa classe.
 
-Foglio **Docenti**
+  -`ONLY_DAYS`: giorni consentiti per docente (per giorno della settimana).
 
-* **Colonne:** i docenti (`Doc1, Doc2, …`).
-* **Righe:** slot orari (`Lun1 … Ven5`) con un colore diverso per giorno della settimana.
-* **Valori:**
-  * `MAT (1A)` → insegna matematica in 1A.
-  * `buco` → ora vuota tra due lezioni nello stesso giorno.
-  * `coopertura` → ora di copertura assegnate.
+  -`GROUP_DAILY_TWO_CLASSES`: docenti che, avendo 2 classi, devono fare almeno 1h/giorno in entrambe.
 
-# I dati personalizzabili:
+  -`START_AT`: orario minimo di inizio per docente e giorno.
 
-CLASSI = ["1A", "1B", "2A", "2B", "3A", "3B", "4A", "4B", "5A", "5B"]
+  -`END_AT`: orario massimo di fine per docente e giorno.
 
-GIORNI = ["LUN", "MAR", "MER", "GIO", "VEN" ]
+  -`MIN_TWO_HOURS_IF_PRESENT_SPECIFIC`: docenti per i quali, se presenti in un giorno, devono fare almeno 2 ore complessive.
 
-DOCENTI = [ "ANGELINI", "DOCENTE1", "SABATELLI", "SCHIAVONE", “CICCIMARRA”, "MARANGI", "SIMEONE", "PEPE", "PALMISANO", "ZIZZI", "DOCENTE2", "MOTORIA”, "LEO", "SAVINO"]
+Output su Excel (`orario_settimanale.xlsx`):
 
-MAX_ORE_SETTIMANALI_DOCENTI = 22
-ORE_SETTIMANALI_CLASSI : {
-	"1A": 27,
-	"1B": 27,
-	"2A": 27,
-	"2B": 27,
-	"3A": 27,
-	"3B": 27,
-	"4A": 29,
-	"4B": 29,
-	"5A": 29,
-	"5B": 29,
-}
+- Foglio "Classi"
+
+  - Colonne: `Slot`, poi tutte le classi, e una colonna finale `Copertura`.
+  - Righe: slot giornalieri ordinati per giorno e orario (colorati per giorno).
+  - Valori: nelle colonne delle classi compare il docente assegnato; nella colonna `Copertura` compaiono i docenti in copertura, se presenti.
+- Foglio "Docenti"
+
+  - Colonne: `Slot`, poi tutti i docenti.
+  - Righe: slot giornalieri colorati per giorno.
+  - Valori: nome classe assegnata (es. `1A`), oppure `COPERTURA`, oppure `BUCO` per indicare un buco orario.
+
+Nota: La GUI valida e salva automaticamente la configurazione in `config.json` quando si preme "GENERA ORARIO". Il salvataggio avviene accanto all'eseguibile (se in versione compilata) o accanto ai sorgenti (in sviluppo). In lettura, se esistono sia un `config.json` esterno sia quello nel bundle PyInstaller, ha priorità quello esterno.
+
+---
+
+## 🔧 Dati personalizzabili
+
+Esempio di campi principali del `config.json`:
+
+-`CLASSI`: lista di classi (es. `["1A", "1B", "2A", ...]`).
+
+-`GIORNI`: lista dei giorni (es. `["LUN", "MAR", "MER", "GIO", "VEN"]`).
+
+-`SLOT_1`/`SLOT_2`/`SLOT_3`: liste di coppie `["H:MM-H:MM", durata_ore]` (la durata può essere anche 0.5).
+
+-`ASSEGNAZIONE_SLOT`: per ogni classe e giorno, quale insieme slot usare (`SLOT_1`/`SLOT_2`/`SLOT_3`).
+
+-`ORE_SETTIMANALI_CLASSI`: ore richieste per ogni classe.
+
+-`MAX_ORE_SETTIMANALI_DOCENTI`: limite ore totali per docente (lezioni + copertura).
+
+-`ASSEGNAZIONE_DOCENTI`: ore per docente su ciascuna classe, e opzionale `copertura`.
+
+- Vincoli specifici/generici come descritti sopra.
 
 ---
 
@@ -87,13 +96,9 @@ venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-Note utili:
-
-- Su Windows, se `python` non è nel PATH, prova `py -3 -m pip install pip`
-
 ---
 
-## ▶️ Esecuzione
+## ▶️ Esecuzione ()
 
 Esegui lo script principale dalla cartella del progetto:
 
@@ -107,16 +112,22 @@ Oppure avvia l'applicazione completa di interfaccia grafica:
 streamlit run app.py
 ```
 
-Al termine verrà generato il file `orario_settimanale.xlsx` nella cartella corrente. I fogli creati sono `Classi` e `Docenti`.
+Il file `orario_settimanale.xlsx` verrà salvato nella cartella corrente. La GUI effettua la validazione dei dati e salva `config.json` alla pressione del tasto "GENERA ORARIO".
 
 ---
 
-## 📦Build
+## 📦 Build eseguibili (Windows)
 
-Esegui lo script principale dalla cartella del progetto:
+- Solo motore (CLI):
 
 ```bash
- pyinstaller --name "GeneraOrario" --onefile --console --add-data "config.json;." --add-data "utils.py;." --collect-all ortools genera_orario_engine.py
+ pyinstaller --clean --name "GeneraOrario" --onefile --console --add-data "config.json;." --add-data "utils.py;." --collect-all ortools genera_orario_engine.py
+```
+
+- GUI Streamlit con wrapper dedicato:
+
+```bash
+pyinstaller --clean --name "GeneraOrarioApp" --onefile --console --add-data "app.py;." --add-data "config.json;." --collect-all streamlit --collect-all ortools --noconfirm streamlit_wrapper.py
 ```
 
 Il tuo file eseguibile si trova all'interno della cartella dist
