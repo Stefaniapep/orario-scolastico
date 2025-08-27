@@ -21,8 +21,3 @@ Thumbs.db
 
 \*.tmp
 \*.bak
-
-
-build/
-dist/
-venv/
