@@ -21,3 +21,8 @@ Thumbs.db
 
 \*.tmp
 \*.bak
+
+# Build artifacts e distribuzione
+
+build/
+dist/
