@@ -65,6 +65,24 @@ def load_config(config_path='config.json'):
         if 'HOURS_PER_DAY_PER_CLASS' in config:
             # HOURS_PER_DAY_PER_CLASS è già un dizionario, non serve conversione
             pass
+        if 'ASSEGNAZIONE_DOCENTI_SPECIFICHE' in config:
+            # Converte il formato da {docente: [classe, giorno, orario, durata]} o {docente: [[classe, giorno, orario, durata], ...]}
+            # al formato interno [docente, classe, giorno, orario, durata]
+            if config['ASSEGNAZIONE_DOCENTI_SPECIFICHE']:
+                converted_assignments = []
+                for docente, assignments in config['ASSEGNAZIONE_DOCENTI_SPECIFICHE'].items():
+                    if isinstance(assignments, list):
+                        # Controlla se è una singola assegnazione [classe, giorno, orario, durata]
+                        if len(assignments) == 4 and isinstance(assignments[0], str):
+                            classe, giorno, orario, durata = assignments
+                            converted_assignments.append([docente, classe, giorno, orario, durata])
+                        # Oppure multiple assegnazioni [[classe, giorno, orario, durata], ...]
+                        else:
+                            for assignment in assignments:
+                                if isinstance(assignment, list) and len(assignment) >= 4:
+                                    classe, giorno, orario, durata = assignment[0], assignment[1], assignment[2], assignment[3]
+                                    converted_assignments.append([docente, classe, giorno, orario, durata])
+                config['ASSEGNAZIONE_DOCENTI_SPECIFICHE'] = converted_assignments
         if 'MIN_TWO_HOURS_IF_PRESENT_SPECIFIC' in config:
             config['MIN_TWO_HOURS_IF_PRESENT_SPECIFIC'] = set(config['MIN_TWO_HOURS_IF_PRESENT_SPECIFIC'])
         if 'ONLY_DAYS' in config:
@@ -121,6 +139,23 @@ def save_config(config: dict, dest_path: str | None = None) -> str:
 
     if 'ONLY_DAYS' in data and isinstance(data['ONLY_DAYS'], dict):
         data['ONLY_DAYS'] = {t: sorted(list(days)) for t, days in data['ONLY_DAYS'].items()}
+
+    # Converte ASSEGNAZIONE_DOCENTI_SPECIFICHE dal formato interno al formato JSON
+    if 'ASSEGNAZIONE_DOCENTI_SPECIFICHE' in data and isinstance(data['ASSEGNAZIONE_DOCENTI_SPECIFICHE'], list):
+        converted_dict = {}
+        for assignment in data['ASSEGNAZIONE_DOCENTI_SPECIFICHE']:
+            if isinstance(assignment, list) and len(assignment) >= 5:
+                docente, classe, giorno, orario, durata = assignment[0], assignment[1], assignment[2], assignment[3], assignment[4]
+                if docente not in converted_dict:
+                    converted_dict[docente] = []
+                converted_dict[docente].append([classe, giorno, orario, durata])
+        
+        # Se un docente ha solo una assegnazione, usa il formato semplice
+        for docente in converted_dict:
+            if len(converted_dict[docente]) == 1:
+                converted_dict[docente] = converted_dict[docente][0]
+        
+        data['ASSEGNAZIONE_DOCENTI_SPECIFICHE'] = converted_dict
 
     for key in ['SLOT_1', 'SLOT_2', 'SLOT_3']:
         if key in data:

@@ -39,6 +39,7 @@ def generate_schedule(config):
     START_AT = config.get('START_AT', {})
     END_AT = config.get('END_AT', {})
     MIN_TWO_HOURS_IF_PRESENT_SPECIFIC = config.get('MIN_TWO_HOURS_IF_PRESENT_SPECIFIC', set())
+    ASSEGNAZIONE_DOCENTI_SPECIFICHE = config.get('ASSEGNAZIONE_DOCENTI_SPECIFICHE', [])
     
     # Carica le flag per i vincoli generici
     USE_MAX_DAILY_HOURS_PER_CLASS = config.get('USE_MAX_DAILY_HOURS_PER_CLASS', True)
@@ -213,6 +214,63 @@ def generate_schedule(config):
                     model.Add(daily_units_for_teacher > 0).OnlyEnforceIf(is_present_today)
                     model.Add(daily_units_for_teacher == 0).OnlyEnforceIf(is_present_today.Not())
                     model.Add(daily_units_for_teacher >= hours_to_units(2)).OnlyEnforceIf(is_present_today)
+
+    if ASSEGNAZIONE_DOCENTI_SPECIFICHE:
+        active_constraints_for_report.append(f"Assegnazioni specifiche per {len(ASSEGNAZIONE_DOCENTI_SPECIFICHE)} vincoli")
+        for assignment in ASSEGNAZIONE_DOCENTI_SPECIFICHE:
+            teacher, classe, day, start_time, duration = assignment
+            
+            # Verifica che il docente sia assegnato alla classe specificata
+            if teacher not in ASSEGNAZIONE_DOCENTI or classe not in ASSEGNAZIONE_DOCENTI[teacher]:
+                log_messages.append(f"AVVISO: {teacher} non è assegnato alla classe {classe} - assegnazione specifica ignorata")
+                continue
+            
+            # Trova l'indice dell'orario di inizio nel sistema di scheduling globale  
+            if start_time not in GLOBAL_SCHEDULING_TIMES:
+                log_messages.append(f"AVVISO: Orario {start_time} non trovato per {teacher} in {classe} - assegnazione specifica ignorata")
+                continue
+                
+            start_idx = GLOBAL_SCHEDULING_TIMES.index(start_time)
+            
+            # Calcola gli slot necessari per la durata richiesta
+            required_units = hours_to_units(duration)
+            
+            # Trova lo slot che corrisponde all'orario di inizio nella classe
+            class_slot_found = False
+            for s_idx, (sl, fl, u) in enumerate(class_slots[classe][day]):
+                if sl == start_time:
+                    # Questo è lo slot di inizio richiesto
+                    class_slot_found = True
+                    
+                    # Calcola quanti slot consecutivi servono per la durata
+                    slots_needed = required_units // u if required_units % u == 0 else (required_units // u) + 1
+                    
+                    # Verifica che ci siano abbastanza slot consecutivi disponibili
+                    if s_idx + slots_needed <= len(class_slots[classe][day]):
+                        # Forza l'utilizzo degli slot richiesti
+                        total_units_used = 0
+                        for i in range(slots_needed):
+                            slot_idx = s_idx + i
+                            if slot_idx < len(class_slots[classe][day]):
+                                _, _, slot_units = class_slots[classe][day][slot_idx]
+                                if (classe, day, slot_idx, teacher) in x:
+                                    model.Add(x[(classe, day, slot_idx, teacher)] == 1)
+                                    total_units_used += slot_units
+                                else:
+                                    log_messages.append(f"AVVISO: Variabile x[{classe}, {day}, {slot_idx}, {teacher}] non trovata")
+                        
+                        # Assicurati che il totale delle unità usate corrisponda alla durata richiesta
+                        if total_units_used >= required_units:
+                            log_messages.append(f"INFO: Assegnazione specifica applicata: {teacher} in {classe} il {day} alle {start_time} per {duration}h")
+                        else:
+                            log_messages.append(f"AVVISO: Unità insufficienti per {teacher} in {classe} il {day} alle {start_time}")
+                    else:
+                        log_messages.append(f"AVVISO: Slot consecutivi insufficienti per {teacher} in {classe} il {day} alle {start_time}")
+                    
+                    break
+            
+            if not class_slot_found:
+                log_messages.append(f"AVVISO: Slot {start_time} non trovato per classe {classe} nel giorno {day}")
 
     # --- ALTRI VINCOLI GENERICI ---
     if USE_CONSECUTIVE_BLOCKS:
@@ -453,6 +511,33 @@ def generate_schedule(config):
                         is_ok = False
                         details.append(f"  - FAIL: Docente {t} il {day} ha solo {units_to_hours(daily_total_units)}h di lezione (richieste min 2h se presente).")
             diagnostics_report.append(f"[{'PASS' if is_ok else 'FAIL'}] Minimo 2 ore/giorno se presente per {MIN_TWO_HOURS_IF_PRESENT_SPECIFIC}"); diagnostics_report.extend(details)
+
+        if ASSEGNAZIONE_DOCENTI_SPECIFICHE:
+            is_ok = True; details = []
+            for assignment in ASSEGNAZIONE_DOCENTI_SPECIFICHE:
+                teacher, classe, day, start_time, duration = assignment
+                required_units = hours_to_units(duration)
+                
+                # Verifica che il docente sia effettivamente assegnato nel giorno/orario/classe specificato
+                assignment_found = False
+                total_units_at_time = 0
+                
+                for s_idx, (sl, fl, u) in enumerate(class_slots[classe][day]):
+                    if sl == start_time:
+                        if solver.Value(x.get((classe, day, s_idx, teacher), 0)):
+                            assignment_found = True
+                            total_units_at_time += u
+                
+                if not assignment_found:
+                    is_ok = False
+                    details.append(f"  - FAIL: {teacher} non è assegnato alla classe {classe} alle {start_time} di {day} come richiesto.")
+                elif total_units_at_time < required_units:
+                    is_ok = False
+                    details.append(f"  - FAIL: {teacher} in {classe} alle {start_time} di {day} ha solo {units_to_hours(total_units_at_time)}h (richieste {duration}h).")
+                else:
+                    details.append(f"  - PASS: {teacher} in {classe} alle {start_time} di {day} ha {units_to_hours(total_units_at_time)}h (richieste {duration}h).")
+            
+            diagnostics_report.append(f"[{'PASS' if is_ok else 'FAIL'}] Assegnazioni specifiche per {len(ASSEGNAZIONE_DOCENTI_SPECIFICHE)} vincoli"); diagnostics_report.extend(details)
 
         # Analisi dei buchi (sempre eseguita per informazione)
         total_hole_units = sum(solver.Value(h) for h in holes.values())

@@ -166,6 +166,172 @@ def validate_config(cfg: dict):
         if got < req:
             errors.append(f"Classe {cl}: ore assegnate {got} < richieste {req}.")
 
+    # VALIDAZIONE ASSEGNAZIONE_DOCENTI_SPECIFICHE
+    if 'ASSEGNAZIONE_DOCENTI_SPECIFICHE' in cfg:
+        specifiche = cfg['ASSEGNAZIONE_DOCENTI_SPECIFICHE']
+        
+        # Supporta sia il formato dict che il formato lista (interno)
+        if isinstance(specifiche, dict):
+            # Formato JSON: {docente: [classe, giorno, orario, durata]} o {docente: [[classe, giorno, orario, durata], ...]}
+            for docente, assegnazioni in specifiche.items():
+                # Verifica che il docente esista in ASSEGNAZIONE_DOCENTI
+                if docente not in cfg['ASSEGNAZIONE_DOCENTI']:
+                    errors.append(f"Docente {docente} in ASSEGNAZIONE_DOCENTI_SPECIFICHE non trovato in ASSEGNAZIONE_DOCENTI.")
+                    continue
+                
+                # Gestisce sia formato singolo che multiplo
+                assignments_to_check = []
+                if isinstance(assegnazioni, list):
+                    if len(assegnazioni) == 4 and isinstance(assegnazioni[0], str):
+                        # Formato singolo: [classe, giorno, orario, durata]
+                        assignments_to_check = [assegnazioni]
+                    else:
+                        # Formato multiplo: [[classe, giorno, orario, durata], ...]
+                        assignments_to_check = assegnazioni
+                
+                for i, assegnazione in enumerate(assignments_to_check):
+                    # Verifica formato dell'assegnazione: [classe, giorno, orario, durata]
+                    if not isinstance(assegnazione, (list, tuple)) or len(assegnazione) != 4:
+                        errors.append(f"Assegnazione {i+1} per docente {docente} deve essere [classe, giorno, orario, durata].")
+                        continue
+                        
+                    classe, giorno, orario, durata = assegnazione
+                    
+                    # Verifica che la classe esista
+                    if classe not in classi:
+                        errors.append(f"Classe {classe} per {docente} in ASSEGNAZIONE_DOCENTI_SPECIFICHE non esiste.")
+                        continue
+                        
+                    # Verifica che il docente sia assegnato a quella classe
+                    if classe not in cfg['ASSEGNAZIONE_DOCENTI'][docente]:
+                        errors.append(f"Docente {docente} ha assegnazione specifica per {classe} ma non è assegnato a quella classe.")
+                        continue
+                    
+                    # Verifica formato giorno, orario, durata
+                    if giorno not in cfg['GIORNI']:
+                        errors.append(f"Giorno {giorno} per {docente}-{classe} non valido.")
+                    
+                    # Verifica che l'orario sia un orario di inizio valido dagli slot
+                    valid_times = set()
+                    for slot_name in ['SLOT_1', 'SLOT_2', 'SLOT_3']:
+                        if slot_name in cfg:
+                            for time_range, duration in cfg[slot_name]:
+                                start_time = time_range.split('-')[0]
+                                valid_times.add(start_time)
+                    
+                    if orario not in valid_times:
+                        errors.append(f"Orario {orario} per {docente}-{classe} non valido. Orari disponibili: {sorted(valid_times)}.")
+                    
+                    try:
+                        durata_num = float(durata)
+                        if durata_num <= 0 or durata_num > 6:
+                            errors.append(f"Durata {durata} per {docente}-{classe} deve essere tra 0 e 6 ore.")
+                    except (ValueError, TypeError):
+                        errors.append(f"Durata {durata} per {docente}-{classe} non è un numero valido.")
+                        continue
+                    
+                    # --- VALIDAZIONI AVANZATE DI COMPATIBILITÀ ---
+                    
+                    # 1. Verifica compatibilità con ASSEGNAZIONE_SLOT
+                    if 'ASSEGNAZIONE_SLOT' in cfg and classe in cfg['ASSEGNAZIONE_SLOT'] and giorno in cfg['ASSEGNAZIONE_SLOT'][classe]:
+                        slot_type = cfg['ASSEGNAZIONE_SLOT'][classe][giorno]
+                        if slot_type in cfg:
+                            class_slots = cfg[slot_type]
+                            # Verifica che l'orario sia disponibile per quella classe in quel giorno
+                            available_for_class = [time_range.split('-')[0] for time_range, _ in class_slots]
+                            if orario not in available_for_class:
+                                errors.append(f"Orario {orario} non disponibile per classe {classe} il {giorno} (usa {slot_type}).")
+                            
+                            # Verifica che ci sia spazio sufficiente per la durata richiesta
+                            try:
+                                start_idx = available_for_class.index(orario)
+                                total_duration_available = sum(dur for _, dur in class_slots[start_idx:])
+                                if durata_num > total_duration_available:
+                                    errors.append(f"Durata {durata}h per {docente}-{classe} alle {orario} di {giorno} eccede il tempo disponibile ({total_duration_available}h).")
+                            except (ValueError, IndexError):
+                                pass
+                    
+                    # 2. Verifica compatibilità con START_AT
+                    if 'START_AT' in cfg and docente in cfg['START_AT'] and giorno in cfg['START_AT'][docente]:
+                        min_start_hour = cfg['START_AT'][docente][giorno]
+                        try:
+                            orario_hour = float(orario.split(':')[0]) + float(orario.split(':')[1])/60
+                            if orario_hour < min_start_hour:
+                                errors.append(f"Orario {orario} per {docente} il {giorno} viola il vincolo START_AT (min {min_start_hour}).")
+                        except (ValueError, IndexError):
+                            pass
+                    
+                    # 3. Verifica compatibilità con END_AT
+                    if 'END_AT' in cfg and docente in cfg['END_AT'] and giorno in cfg['END_AT'][docente]:
+                        max_end_hour = cfg['END_AT'][docente][giorno]
+                        try:
+                            orario_hour = float(orario.split(':')[0]) + float(orario.split(':')[1])/60
+                            end_hour = orario_hour + durata_num
+                            if end_hour > max_end_hour:
+                                errors.append(f"Orario {orario}+{durata}h per {docente} il {giorno} viola il vincolo END_AT (max {max_end_hour}).")
+                        except (ValueError, IndexError, TypeError):
+                            pass
+                    
+                    # 4. Verifica compatibilità con ONLY_DAYS
+                    if 'ONLY_DAYS' in cfg and docente in cfg['ONLY_DAYS']:
+                        allowed_days = cfg['ONLY_DAYS'][docente]
+                        if isinstance(allowed_days, (list, set)) and giorno not in allowed_days:
+                            errors.append(f"Giorno {giorno} per {docente} viola il vincolo ONLY_DAYS ({list(allowed_days)}).")
+                    
+                    # 5. Verifica compatibilità con MAX_DAILY_HOURS_PER_CLASS
+                    if 'MAX_DAILY_HOURS_PER_CLASS' in cfg and 'USE_MAX_DAILY_HOURS_PER_CLASS' in cfg and cfg['USE_MAX_DAILY_HOURS_PER_CLASS']:
+                        max_daily = cfg['MAX_DAILY_HOURS_PER_CLASS']
+                        if durata_num > max_daily:
+                            warnings.append(f"Durata {durata}h per {docente}-{classe} eccede MAX_DAILY_HOURS_PER_CLASS ({max_daily}h).")
+                    
+                    # 6. Verifica compatibilità con HOURS_PER_DAY_PER_CLASS
+                    if 'HOURS_PER_DAY_PER_CLASS' in cfg and docente in cfg['HOURS_PER_DAY_PER_CLASS']:
+                        exact_hours = cfg['HOURS_PER_DAY_PER_CLASS'][docente]
+                        if durata_num != exact_hours:
+                            errors.append(f"Durata {durata}h per {docente}-{classe} viola HOURS_PER_DAY_PER_CLASS (richieste esattamente {exact_hours}h).")
+                    
+                    # 7. Verifica compatibilità con ORE_SETTIMANALI_CLASSI
+                    if 'ORE_SETTIMANALI_CLASSI' in cfg and classe in cfg['ORE_SETTIMANALI_CLASSI']:
+                        if docente in cfg['ORE_SETTIMANALI_CLASSI'][classe]:
+                            weekly_hours = cfg['ORE_SETTIMANALI_CLASSI'][classe][docente]
+                            # Calcola le ore totali specifiche per questa combinazione docente-classe
+                            total_specific_hours = 0
+                            for spec_classe, spec_giorno, spec_orario, spec_durata in assignments_to_check:
+                                if spec_classe == classe:
+                                    try:
+                                        total_specific_hours += float(spec_durata)
+                                    except (ValueError, TypeError):
+                                        pass
+                            
+                            if total_specific_hours > weekly_hours:
+                                errors.append(f"Ore specifiche totali {total_specific_hours}h per {docente}-{classe} eccedono ORE_SETTIMANALI_CLASSI ({weekly_hours}h).")
+                            elif total_specific_hours == weekly_hours:
+                                warnings.append(f"Ore specifiche {total_specific_hours}h per {docente}-{classe} saturano completamente ORE_SETTIMANALI_CLASSI.")
+        
+        elif isinstance(specifiche, list):
+            # Formato interno: [[docente, classe, giorno, orario, durata], ...]
+            for i, assegnazione in enumerate(specifiche):
+                if not isinstance(assegnazione, (list, tuple)) or len(assegnazione) != 5:
+                    errors.append(f"Assegnazione specifica {i+1} deve essere [docente, classe, giorno, orario, durata].")
+                    continue
+                    
+                docente, classe, giorno, orario, durata = assegnazione
+                
+                # Verifica che il docente esista
+                if docente not in cfg['ASSEGNAZIONE_DOCENTI']:
+                    errors.append(f"Docente {docente} in assegnazione specifica {i+1} non trovato in ASSEGNAZIONE_DOCENTI.")
+                    continue
+                    
+                # Verifica che la classe esista
+                if classe not in classi:
+                    errors.append(f"Classe {classe} in assegnazione specifica {i+1} non esiste.")
+                    continue
+                    
+                # Verifica che il docente sia assegnato a quella classe
+                if classe not in cfg['ASSEGNAZIONE_DOCENTI'][docente]:
+                    errors.append(f"Docente {docente} ha assegnazione specifica per {classe} ma non è assegnato a quella classe.")
+                    continue
+
     return len(errors) == 0, errors, warnings
 
 
@@ -353,6 +519,81 @@ with st.expander("⚙️ **Apri per configurare Dati e Vincoli**", expanded=Fals
                 elif 'ONLY_DAYS' in st.session_state.config:
                     del st.session_state.config['ONLY_DAYS']
 
+            with st.container(border=True):
+                use_constraint = st.checkbox("**Assegnazioni specifiche docenti**", 
+                                            value='ASSEGNAZIONE_DOCENTI_SPECIFICHE' in st.session_state.config)
+                if use_constraint:
+                    st.session_state.config.setdefault('ASSEGNAZIONE_DOCENTI_SPECIFICHE', [])
+                    
+                    # Converti formato interno (lista) a formato UI se necessario
+                    if isinstance(st.session_state.config['ASSEGNAZIONE_DOCENTI_SPECIFICHE'], dict):
+                        temp_list = []
+                        for docente, assignments in st.session_state.config['ASSEGNAZIONE_DOCENTI_SPECIFICHE'].items():
+                            # Gestisce sia formato singolo che multiplo
+                            if isinstance(assignments[0], str):  # Formato singolo: [classe, giorno, orario, durata]
+                                classe, giorno, orario, durata = assignments
+                                temp_list.append([docente, classe, giorno, orario, durata])
+                            else:  # Formato multiplo: [[classe, giorno, orario, durata], ...]
+                                for assignment in assignments:
+                                    classe, giorno, orario, durata = assignment
+                                    temp_list.append([docente, classe, giorno, orario, durata])
+                        st.session_state.config['ASSEGNAZIONE_DOCENTI_SPECIFICHE'] = temp_list
+                    
+                    # Prepara i dati per il data_editor dal formato interno
+                    assignments_data = []
+                    if st.session_state.config['ASSEGNAZIONE_DOCENTI_SPECIFICHE']:
+                        for assignment in st.session_state.config['ASSEGNAZIONE_DOCENTI_SPECIFICHE']:
+                            if len(assignment) >= 5:
+                                docente, classe, giorno, orario, durata = assignment
+                                assignments_data.append({
+                                    "Docente": docente,
+                                    "Classe": classe,
+                                    "Giorno": giorno,
+                                    "Orario": orario,
+                                    "Durata": durata
+                                })
+                    
+                    # Se non ci sono assegnazioni, mostra un editor vuoto
+                    if not assignments_data:
+                        assignments_data = [{"Docente": "", "Classe": "", "Giorno": "", "Orario": "", "Durata": 1}]
+                    
+                    # Estrai tutti gli orari di inizio disponibili dagli slot
+                    available_times = set()
+                    for slot_name in ['SLOT_1', 'SLOT_2', 'SLOT_3']:
+                        if slot_name in st.session_state.config:
+                            for time_range, duration in st.session_state.config[slot_name]:
+                                start_time = time_range.split('-')[0]
+                                available_times.add(start_time)
+                    available_times = sorted(list(available_times))
+                    
+                    edited_assignments_df = st.data_editor(
+                        pd.DataFrame(assignments_data), 
+                        num_rows="dynamic", 
+                        use_container_width=True,
+                        key="assegnazioni_specifiche_editor",
+                        column_config={
+                            "Docente": st.column_config.SelectboxColumn("Docente", options=all_teachers, required=True),
+                            "Classe": st.column_config.SelectboxColumn("Classe", options=st.session_state.config['CLASSI'], required=True),
+                            "Giorno": st.column_config.SelectboxColumn("Giorno", options=st.session_state.config['GIORNI'], required=True),
+                            "Orario": st.column_config.SelectboxColumn("Orario", options=available_times, required=True),
+                            "Durata": st.column_config.NumberColumn("Durata (ore)", min_value=0.5, max_value=6, step=0.5, required=True)
+                        }
+                    )
+                    
+                    # Aggiorna le assegnazioni specifiche nel formato interno
+                    new_assignments = []
+                    for _, row in edited_assignments_df.iterrows():
+                        if row["Docente"] and row["Classe"] and row["Giorno"] and row["Orario"] and row["Durata"]:
+                            assignment = [row["Docente"], row["Classe"], row["Giorno"], row["Orario"], float(row["Durata"])]
+                            new_assignments.append(assignment)
+                    
+                    st.session_state.config['ASSEGNAZIONE_DOCENTI_SPECIFICHE'] = new_assignments
+                    
+                    st.caption("💡 Assegna docenti a specifiche classi, giorni e orari. Puoi aggiungere multiple assegnazioni per lo stesso docente.")
+                    
+                elif 'ASSEGNAZIONE_DOCENTI_SPECIFICHE' in st.session_state.config:
+                    del st.session_state.config['ASSEGNAZIONE_DOCENTI_SPECIFICHE']
+
             c1, c2 = st.columns(2)
             with c1:
                 with st.container(border=True):
@@ -388,6 +629,8 @@ with st.expander("⚙️ **Apri per configurare Dati e Vincoli**", expanded=Fals
                         st.session_state.config['END_AT'] = new_end_at
                     elif 'END_AT' in st.session_state.config:
                         del st.session_state.config['END_AT']
+            
+
             
     # --- Scheda Vincoli Generici ---
     with tab_vincoli_gen:

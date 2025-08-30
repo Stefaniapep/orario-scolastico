@@ -265,6 +265,22 @@
       "4B": 3
     }
   },
+  "ASSEGNAZIONE_DOCENTI_SPECIFICHE": {
+    "CARDONE": [
+      [
+        "5B",
+        "LUN",
+        "8:00",
+        2.0
+      ],
+      [
+        "5A",
+        "VEN",
+        "11:00",
+        4.0
+      ]
+    ]
+  },
   "GROUP_DAILY_TWO_CLASSES": [
     "ANGELINI",
     "MARANGI",
@@ -339,5 +355,5 @@
   "MAX_DAILY_HOURS_PER_CLASS": 3.5,
   "USE_CONSECUTIVE_BLOCKS": true,
   "USE_MAX_ONE_HOLE": true,
-  "USE_OPTIMIZE_HOLES": true
+  "USE_OPTIMIZE_HOLES": false
 }
