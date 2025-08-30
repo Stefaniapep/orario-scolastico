@@ -62,8 +62,9 @@ def load_config(config_path='config.json'):
         # Riconverte le liste in set dove necessario
         if 'GROUP_DAILY_TWO_CLASSES' in config:
             config['GROUP_DAILY_TWO_CLASSES'] = set(config['GROUP_DAILY_TWO_CLASSES'])
-        if 'LIMIT_ONE_PER_DAY_PER_CLASS' in config:
-            config['LIMIT_ONE_PER_DAY_PER_CLASS'] = set(config['LIMIT_ONE_PER_DAY_PER_CLASS'])
+        if 'HOURS_PER_DAY_PER_CLASS' in config:
+            # HOURS_PER_DAY_PER_CLASS è già un dizionario, non serve conversione
+            pass
         if 'MIN_TWO_HOURS_IF_PRESENT_SPECIFIC' in config:
             config['MIN_TWO_HOURS_IF_PRESENT_SPECIFIC'] = set(config['MIN_TWO_HOURS_IF_PRESENT_SPECIFIC'])
         if 'ONLY_DAYS' in config:
@@ -114,7 +115,7 @@ def save_config(config: dict, dest_path: str | None = None) -> str:
     data = dict(config)
 
     # Normalizza le chiavi note con set e tuple
-    for key in ['GROUP_DAILY_TWO_CLASSES', 'LIMIT_ONE_PER_DAY_PER_CLASS', 'MIN_TWO_HOURS_IF_PRESENT_SPECIFIC']:
+    for key in ['GROUP_DAILY_TWO_CLASSES', 'MIN_TWO_HOURS_IF_PRESENT_SPECIFIC']:
         if key in data and isinstance(data[key], set):
             data[key] = sorted(list(data[key]))
 

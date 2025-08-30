@@ -1,4 +1,6 @@
-# 📘 Generatore Orario Classi e Docenti
+# Generatore Orario Classi e Docenti
+
+[![License](https://img.shields.io/github/license/OWNER/REPO)](./LICENSE)
 
 Genera automaticamente l'orario settimanale per un insieme di classi e docenti, rispettando vincoli generici e specifici configurabili tramite file `config.json` o tramite GUI (Streamlit).
 

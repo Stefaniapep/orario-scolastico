@@ -34,7 +34,7 @@ def generate_schedule(config):
     
     # Carica i vincoli specifici (attivati dalla presenza della chiave)
     GROUP_DAILY_TWO_CLASSES = config.get('GROUP_DAILY_TWO_CLASSES', set())
-    LIMIT_ONE_PER_DAY_PER_CLASS = config.get('LIMIT_ONE_PER_DAY_PER_CLASS', set())
+    HOURS_PER_DAY_PER_CLASS = config.get('HOURS_PER_DAY_PER_CLASS', {})
     ONLY_DAYS = config.get('ONLY_DAYS', {})
     START_AT = config.get('START_AT', {})
     END_AT = config.get('END_AT', {})
@@ -146,11 +146,27 @@ def generate_schedule(config):
                     model.Add(daily_class_units <= hours_to_units(MAX_DAILY_HOURS_PER_CLASS))
 
     # --- VINCOLI SPECIFICI (attivati dalla presenza dei dati) ---
-    if LIMIT_ONE_PER_DAY_PER_CLASS:
-        active_constraints_for_report.append(f"Max 1 ora/giorno/classe per {LIMIT_ONE_PER_DAY_PER_CLASS}")
-        for t in LIMIT_ONE_PER_DAY_PER_CLASS:
-            for cl in CLASSI:
-                for day in GIORNI: model.Add(sum(x.get((cl, day, s_idx, t), 0) * u for s_idx, (sl, fl, u) in enumerate(class_slots[cl][day])) <= hours_to_units(1))
+    if HOURS_PER_DAY_PER_CLASS:
+        active_constraints_for_report.append(f"Ore giornaliere per classe per {list(HOURS_PER_DAY_PER_CLASS.keys())}")
+        for t, exact_hours in HOURS_PER_DAY_PER_CLASS.items():
+            # Applica il vincolo solo alle classi a cui il docente è effettivamente assegnato
+            teacher_assignments = ASSEGNAZIONE_DOCENTI.get(t, {})
+            for cl in teacher_assignments:
+                if cl == 'copertura': continue  # Salta la copertura
+                total_hours_for_class = teacher_assignments[cl]
+                
+                # Verifica che sia matematicamente possibile
+                if total_hours_for_class % exact_hours != 0:
+                    log_messages.append(f"⚠️  ATTENZIONE: {t} ha {total_hours_for_class}h assegnate in {cl} ma vincolo di {exact_hours}h/giorno. Non è divisibile!")
+                    continue
+                
+                for day in GIORNI: 
+                    daily_units = sum(x.get((cl, day, s_idx, t), 0) * u for s_idx, (sl, fl, u) in enumerate(class_slots[cl][day]))
+                    # Vincolo di ore: 0 o exact_hours
+                    is_present = model.NewBoolVar(f"present_{t}_{cl}_{day}")
+                    model.Add(daily_units >= hours_to_units(exact_hours)).OnlyEnforceIf(is_present)
+                    model.Add(daily_units <= hours_to_units(exact_hours)).OnlyEnforceIf(is_present)
+                    model.Add(daily_units == 0).OnlyEnforceIf(is_present.Not())
     
     if ONLY_DAYS:
         active_constraints_for_report.append(f"Regole di giorni consentiti per {list(ONLY_DAYS.keys())}")
@@ -202,7 +218,7 @@ def generate_schedule(config):
     if USE_CONSECUTIVE_BLOCKS:
         log_messages.append("- Vincolo ATTIVO: Blocchi di 2 o 3 ore in una classe devono essere consecutivi")
         for t in teachers:
-            if t in LIMIT_ONE_PER_DAY_PER_CLASS: continue
+            if t in HOURS_PER_DAY_PER_CLASS and HOURS_PER_DAY_PER_CLASS[t] <= 1: continue
             for cl in ASSEGNAZIONE_DOCENTI.get(t, {}):
                 if cl == 'copertura': continue
                 for day in GIORNI:
@@ -362,7 +378,7 @@ def generate_schedule(config):
         if USE_CONSECUTIVE_BLOCKS:
             is_ok_consecutive = True; details_consecutive = []
             for t in teachers:
-                if t in LIMIT_ONE_PER_DAY_PER_CLASS: continue
+                if t in HOURS_PER_DAY_PER_CLASS and HOURS_PER_DAY_PER_CLASS[t] <= 1: continue
                 for cl in ASSEGNAZIONE_DOCENTI.get(t, {}):
                     if cl == 'copertura': continue
                     for day in GIORNI:
@@ -375,15 +391,17 @@ def generate_schedule(config):
                                 details_consecutive.append(f"  - FAIL: {t} in {cl} il {day} ha {units_to_hours(daily_units)} ore non consecutive ({', '.join(taught_at)}).")
             diagnostics_report.append(f"[{'PASS' if is_ok_consecutive else 'FAIL'}] Lezioni di 2 o 3 ore sono consecutive"); diagnostics_report.extend(details_consecutive)
 
-        if LIMIT_ONE_PER_DAY_PER_CLASS:
+        if HOURS_PER_DAY_PER_CLASS:
             is_ok = True; details = []
-            for t in LIMIT_ONE_PER_DAY_PER_CLASS:
+            for t, exact_hours in HOURS_PER_DAY_PER_CLASS.items():
                 for cl, hours in ASSEGNAZIONE_DOCENTI.get(t, {}).items():
                     if cl == 'copertura': continue
                     for day in GIORNI:
                         units_taught = sum(solver.Value(x.get((cl, day, s_idx, t), 0)) * u for s_idx, (_, _, u) in enumerate(class_slots[cl][day]))
-                        if units_taught > hours_to_units(1): is_ok = False; details.append(f"  - FAIL: {t} in {cl} il {day} ha {units_to_hours(units_taught)}h (> 1h)")
-            diagnostics_report.append(f"[{'PASS' if is_ok else 'FAIL'}] Max 1 ora/giorno/classe per {LIMIT_ONE_PER_DAY_PER_CLASS}"); diagnostics_report.extend(details)
+                        hours_taught = units_to_hours(units_taught)
+                        if hours_taught != 0 and hours_taught != exact_hours: 
+                            is_ok = False; details.append(f"  - FAIL: {t} in {cl} il {day} ha {hours_taught}h (dovrebbe essere 0 o {exact_hours}h)")
+            diagnostics_report.append(f"[{'PASS' if is_ok else 'FAIL'}] Ore giornaliere per classe per {list(HOURS_PER_DAY_PER_CLASS.keys())}"); diagnostics_report.extend(details)
         
         if ONLY_DAYS:
             is_ok = True; details = []

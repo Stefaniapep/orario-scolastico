@@ -277,10 +277,11 @@
     "SIMEONE",
     "ZIZZI"
   ],
-  "LIMIT_ONE_PER_DAY_PER_CLASS": [
-    "MOTORIA",
-    "SAVINO"
-  ],
+  "HOURS_PER_DAY_PER_CLASS": {
+    "MOTORIA": 1,
+    "SAVINO": 1,
+    "CARDONE": 2
+  },
   "ONLY_DAYS": {
     "MOTORIA": [
       "LUN",

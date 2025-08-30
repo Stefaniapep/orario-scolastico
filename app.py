@@ -290,31 +290,51 @@ with st.expander("⚙️ **Apri per configurare Dati e Vincoli**", expanded=Fals
         with tab_vincoli_spec:
             st.subheader("Personalizzazione dei Vincoli Specifici")
             all_teachers = list(st.session_state.config['ASSEGNAZIONE_DOCENTI'].keys())
-            
+                        
             with st.container(border=True):
-                # Il valore del checkbox è determinato dalla PRESENZA della chiave di configurazione
-                use_constraint = st.checkbox("**Limite 1 ora/giorno per classe**", 
-                                            value='LIMIT_ONE_PER_DAY_PER_CLASS' in st.session_state.config)
+                use_constraint = st.checkbox("**Minimo 2 ore/giorno di servizio se presente (per docenti specifici)**", 
+                                            value='MIN_TWO_HOURS_IF_PRESENT_SPECIFIC' in st.session_state.config)
                 if use_constraint:
-                    # Se attivo, ci assicuriamo che la chiave esista (come set vuoto se appena creata)
-                    st.session_state.config.setdefault('LIMIT_ONE_PER_DAY_PER_CLASS', set())
+                    st.session_state.config.setdefault('MIN_TWO_HOURS_IF_PRESENT_SPECIFIC', set())
                     selected = st.multiselect("Seleziona i docenti a cui applicare questo vincolo:", all_teachers, 
-                                            default=list(st.session_state.config['LIMIT_ONE_PER_DAY_PER_CLASS']))
-                    st.session_state.config['LIMIT_ONE_PER_DAY_PER_CLASS'] = set(selected)
-                elif 'LIMIT_ONE_PER_DAY_PER_CLASS' in st.session_state.config:
-                    # Se disattivato, RIMUOVIAMO la chiave dalla configurazione
-                    del st.session_state.config['LIMIT_ONE_PER_DAY_PER_CLASS']
+                                            default=list(st.session_state.config['MIN_TWO_HOURS_IF_PRESENT_SPECIFIC']),
+                                            key="min_two_hours_multiselect")
+                    st.session_state.config['MIN_TWO_HOURS_IF_PRESENT_SPECIFIC'] = set(selected)
+                elif 'MIN_TWO_HOURS_IF_PRESENT_SPECIFIC' in st.session_state.config:
+                    del st.session_state.config['MIN_TWO_HOURS_IF_PRESENT_SPECIFIC']
 
             with st.container(border=True):
-                use_constraint = st.checkbox("**Min 1h/giorno in entrambe le classi assegnate**", 
+                use_constraint = st.checkbox("**Min 1h/giorno in ENTRAMBE le classi assegnate**", 
                                             value='GROUP_DAILY_TWO_CLASSES' in st.session_state.config)
                 if use_constraint:
                     st.session_state.config.setdefault('GROUP_DAILY_TWO_CLASSES', set())
                     selected = st.multiselect("Seleziona i docenti a cui applicare questo vincolo (solitamente chi ha 2 classi):", all_teachers, 
-                                            default=list(st.session_state.config['GROUP_DAILY_TWO_CLASSES']))
+                                            default=list(st.session_state.config['GROUP_DAILY_TWO_CLASSES']),
+                                            key="group_daily_multiselect")
                     st.session_state.config['GROUP_DAILY_TWO_CLASSES'] = set(selected)
                 elif 'GROUP_DAILY_TWO_CLASSES' in st.session_state.config:
                     del st.session_state.config['GROUP_DAILY_TWO_CLASSES']
+
+            with st.container(border=True):
+                use_constraint = st.checkbox("**Durata lezione per giorno per classe**", 
+                                            value='HOURS_PER_DAY_PER_CLASS' in st.session_state.config)
+                if use_constraint:
+                    st.session_state.config.setdefault('HOURS_PER_DAY_PER_CLASS', {})
+                    st.caption("Specifica il numero di ore che ogni docente deve insegnare quando presente in una classe (0 ore = non presente, altrimenti possibilmente il numero specificato):")
+                    hours_rules = [{"Docente": teacher, "Ore/Giorno": hours} 
+                                  for teacher, hours in st.session_state.config['HOURS_PER_DAY_PER_CLASS'].items()]
+                    edited_hours_df = st.data_editor(pd.DataFrame(hours_rules), num_rows="dynamic", use_container_width=True,
+                        column_config={
+                            "Docente": st.column_config.SelectboxColumn("Docente", options=all_teachers, required=True), 
+                            "Ore/Giorno": st.column_config.NumberColumn("Ore/Giorno", min_value=0.5, max_value=8.0, step=0.5, required=True, help="Numero di ore quando il docente è presente nella classe")
+                        })
+                    new_hours_per_day = {}
+                    for _, row in edited_hours_df.iterrows():
+                        if row["Docente"] and row["Ore/Giorno"]:
+                            new_hours_per_day[row["Docente"]] = row["Ore/Giorno"]
+                    st.session_state.config['HOURS_PER_DAY_PER_CLASS'] = new_hours_per_day
+                elif 'HOURS_PER_DAY_PER_CLASS' in st.session_state.config:
+                    del st.session_state.config['HOURS_PER_DAY_PER_CLASS']
 
             with st.container(border=True):
                 use_constraint = st.checkbox("**Giorni di lezione specifici**", 
@@ -332,17 +352,6 @@ with st.expander("⚙️ **Apri per configurare Dati e Vincoli**", expanded=Fals
                     st.session_state.config['ONLY_DAYS'] = new_only_days
                 elif 'ONLY_DAYS' in st.session_state.config:
                     del st.session_state.config['ONLY_DAYS']
-            
-            with st.container(border=True):
-                use_constraint = st.checkbox("**Minimo 2 ore/giorno di servizio se presente (per docenti specifici)**", 
-                                            value='MIN_TWO_HOURS_IF_PRESENT_SPECIFIC' in st.session_state.config)
-                if use_constraint:
-                    st.session_state.config.setdefault('MIN_TWO_HOURS_IF_PRESENT_SPECIFIC', set())
-                    selected = st.multiselect("Seleziona i docenti a cui applicare questo vincolo:", all_teachers, 
-                                            default=list(st.session_state.config['MIN_TWO_HOURS_IF_PRESENT_SPECIFIC']))
-                    st.session_state.config['MIN_TWO_HOURS_IF_PRESENT_SPECIFIC'] = set(selected)
-                elif 'MIN_TWO_HOURS_IF_PRESENT_SPECIFIC' in st.session_state.config:
-                    del st.session_state.config['MIN_TWO_HOURS_IF_PRESENT_SPECIFIC']
 
             c1, c2 = st.columns(2)
             with c1:
