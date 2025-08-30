@@ -380,7 +380,13 @@ with st.expander("⚙️ **Apri per configurare Dati e Vincoli**", expanded=Fals
     with tab_vincoli_gen:
             st.subheader("Attivazione dei Vincoli Strutturali Generici")
             st.caption("Questi vincoli definiscono la qualità base dell'orario. Disattivali solo per esperimenti o se il modello fatica a trovare soluzioni.")
-            
+            with st.container(border=True):
+                st.session_state.config['USE_OPTIMIZE_HOLES'] = st.checkbox(
+                    "**Ottimizzazione minimizzazione buchi orari**",
+                    value=st.session_state.config.get('USE_OPTIMIZE_HOLES', True),
+                    help="Se attivo, il solver ottimizza l'orario per minimizzare i buchi orari. Se disattivo, trova semplicemente una soluzione valida diversa ogni volta."
+                )
+
             with st.container(border=True):
                 st.session_state.config['USE_MAX_DAILY_HOURS_PER_CLASS'] = st.checkbox(
                     "**Massimo 4 ore/giorno per docente nella stessa classe**",

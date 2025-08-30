@@ -44,6 +44,7 @@ def generate_schedule(config):
     USE_MAX_DAILY_HOURS_PER_CLASS = config.get('USE_MAX_DAILY_HOURS_PER_CLASS', True)
     USE_CONSECUTIVE_BLOCKS = config.get('USE_CONSECUTIVE_BLOCKS', True)
     USE_MAX_ONE_HOLE = config.get('USE_MAX_ONE_HOLE', True)
+    USE_OPTIMIZE_HOLES = config.get('USE_OPTIMIZE_HOLES', True)
 
 
     # --- 2. PRE-ELABORAZIONE E DEFINIZIONE STRUTTURE DATI ---
@@ -245,8 +246,9 @@ def generate_schedule(config):
                 model.Add(sum(starts) <= 2)
 
     # --- 6. OBIETTIVO DI OTTIMIZZAZIONE (MINIMIZZAZIONE BUCHI) ---
-    # Questa sezione è INCONDIZIONATA: l'obiettivo è sempre minimizzare i buchi.
-    holes = {} # <-- INIZIALIZZAZIONE CRUCIALE
+    # Le variabili holes vengono SEMPRE create per l'analisi e visualizzazione
+    log_messages.append("- Creazione variabili per analisi buchi orari")
+    holes = {}
     for t in teachers:
         for day in GIORNI:
             works_at_time = [b[(t, day, sl)] for sl in GLOBAL_SCHEDULING_TIMES]
@@ -267,25 +269,33 @@ def generate_schedule(config):
                 model.AddBoolAnd([works_at_time[i].Not(), has_worked_before[i], will_work_after[i]]).OnlyEnforceIf(h)
                 model.AddBoolOr([h, works_at_time[i], has_worked_before[i].Not(), will_work_after[i].Not()])
                 holes[(t, day, sl)] = h
-    
-    total_penalty = []
-    for t in teachers:
-        for day in GIORNI:
-            daily_hole_units = sum(holes[(t, day, sl)] for sl in GLOBAL_SCHEDULING_TIMES)
-            is_zero_holes = model.NewBoolVar(f'is_zero_h_{t}_{day}'); model.Add(daily_hole_units == 0).OnlyEnforceIf(is_zero_holes); model.Add(daily_hole_units != 0).OnlyEnforceIf(is_zero_holes.Not())
-            is_two_hour_hole = model.NewBoolVar(f'is_2h_h_{t}_{day}'); model.Add(daily_hole_units == hours_to_units(2)).OnlyEnforceIf(is_two_hour_hole); model.Add(daily_hole_units != hours_to_units(2)).OnlyEnforceIf(is_two_hour_hole.Not())
-            is_good_hole_day = model.NewBoolVar(f'is_good_h_day_{t}_{day}'); model.AddBoolOr([is_zero_holes, is_two_hour_hole]).OnlyEnforceIf(is_good_hole_day)
-            model.AddImplication(is_good_hole_day.Not(), is_zero_holes.Not()); model.AddImplication(is_good_hole_day.Not(), is_two_hour_hole.Not())
-            daily_penalty = model.NewIntVar(0, 1000, f'penalty_{t}_{day}')
-            model.Add(daily_penalty == 0).OnlyEnforceIf(is_zero_holes)
-            model.Add(daily_penalty == 1).OnlyEnforceIf(is_two_hour_hole)
-            model.Add(daily_penalty == daily_hole_units * 10).OnlyEnforceIf(is_good_hole_day.Not())
-            total_penalty.append(daily_penalty)
-    model.Minimize(sum(total_penalty))
+
+    # Ottimizzazione condizionale
+    if USE_OPTIMIZE_HOLES:
+        log_messages.append("- Ottimizzazione ATTIVA: Minimizzazione buchi orari")
+        total_penalty = []
+        for t in teachers:
+            for day in GIORNI:
+                daily_hole_units = sum(holes[(t, day, sl)] for sl in GLOBAL_SCHEDULING_TIMES)
+                is_zero_holes = model.NewBoolVar(f'is_zero_h_{t}_{day}'); model.Add(daily_hole_units == 0).OnlyEnforceIf(is_zero_holes); model.Add(daily_hole_units != 0).OnlyEnforceIf(is_zero_holes.Not())
+                is_two_hour_hole = model.NewBoolVar(f'is_2h_h_{t}_{day}'); model.Add(daily_hole_units == hours_to_units(2)).OnlyEnforceIf(is_two_hour_hole); model.Add(daily_hole_units != hours_to_units(2)).OnlyEnforceIf(is_two_hour_hole.Not())
+                is_good_hole_day = model.NewBoolVar(f'is_good_h_day_{t}_{day}'); model.AddBoolOr([is_zero_holes, is_two_hour_hole]).OnlyEnforceIf(is_good_hole_day)
+                model.AddImplication(is_good_hole_day.Not(), is_zero_holes.Not()); model.AddImplication(is_good_hole_day.Not(), is_two_hour_hole.Not())
+                daily_penalty = model.NewIntVar(0, 1000, f'penalty_{t}_{day}')
+                model.Add(daily_penalty == 0).OnlyEnforceIf(is_zero_holes)
+                model.Add(daily_penalty == 1).OnlyEnforceIf(is_two_hour_hole)
+                model.Add(daily_penalty == daily_hole_units * 10).OnlyEnforceIf(is_good_hole_day.Not())
+                total_penalty.append(daily_penalty)
+        model.Minimize(sum(total_penalty))
+    else:
+        log_messages.append("- Ottimizzazione DISATTIVA: Ricerca soluzione valida senza ottimizzazione buchi")
 
     # --- 7. RISOLUZIONE ---
     log_messages.append(f"Vincoli specifici attivi: {active_constraints_for_report if active_constraints_for_report else ['Nessuno']}")
-    log_messages.append("\nAvvio ottimizzazione modello (minimizzazione buchi)...")
+    if USE_OPTIMIZE_HOLES:
+        log_messages.append("\nAvvio ottimizzazione modello (minimizzazione buchi)...")
+    else:
+        log_messages.append("\nAvvio ricerca soluzione valida (senza ottimizzazione)...")
     solver = cp_model.CpSolver(); solver.parameters.max_time_in_seconds = 120; solver.parameters.num_search_workers=os.cpu_count() or 8;
     solver.parameters.randomize_search = True
     res = solver.Solve(model)
@@ -420,6 +430,7 @@ def generate_schedule(config):
                         details.append(f"  - FAIL: Docente {t} il {day} ha solo {units_to_hours(daily_total_units)}h di lezione (richieste min 2h se presente).")
             diagnostics_report.append(f"[{'PASS' if is_ok else 'FAIL'}] Minimo 2 ore/giorno se presente per {MIN_TWO_HOURS_IF_PRESENT_SPECIFIC}"); diagnostics_report.extend(details)
 
+        # Analisi dei buchi (sempre eseguita per informazione)
         total_hole_units = sum(solver.Value(h) for h in holes.values())
         non_2h_hole_days = 0
         for t in teachers:
@@ -427,11 +438,20 @@ def generate_schedule(config):
                 daily_hole_units = sum(solver.Value(holes.get((t, day, sl), 0)) for sl in GLOBAL_SCHEDULING_TIMES)
                 if daily_hole_units > 0 and daily_hole_units != hours_to_units(2):
                     non_2h_hole_days += 1
-        diagnostics_report.append(f"[INFO] Ottimizzazione buchi: Trovate {units_to_hours(total_hole_units)} ore di buco totali.")
+        
+        diagnostics_report.append(f"[INFO] Analisi buchi: Trovate {units_to_hours(total_hole_units)} ore di buco totali.")
         if non_2h_hole_days > 0:
             diagnostics_report.append(f"  - ATTENZIONE: Ci sono {non_2h_hole_days} orari giornalieri con buchi di durata diversa da 2 ore.")
         else:
             diagnostics_report.append("  - OTTIMO: Tutti i buchi presenti sono di 0 o 2 ore.")
+        
+        # Note sui vincoli attivi
+        if USE_MAX_ONE_HOLE:
+            diagnostics_report.append("  - Nota: Vincolo 'max 1 buco' attivo.")
+        if USE_OPTIMIZE_HOLES:
+            diagnostics_report.append("  - Nota: Ottimizzazione buchi attiva nella soluzione.")
+        if not USE_MAX_ONE_HOLE and not USE_OPTIMIZE_HOLES:
+            diagnostics_report.append("  - Nota: Nessun vincolo sui buchi attivo (solo analisi informativa).")
 
     diagnostics_string = "\n".join(diagnostics_report)
 
@@ -462,12 +482,13 @@ def generate_schedule(config):
         if solver.Value(var) == 1: orario_docenti[(day, class_slots[cl][day][s_idx][0])][t] = cl
     for (d, s_idx, t), (var, sl, fl, u) in copertura_vars.items():
         if solver.Value(var) == 1: orario_docenti[(d, sl)][t] = "COPERTURA"
+    
+    # Aggiungi sempre i buchi per visualizzazione completa
     for t in teachers:
         for day in GIORNI:
-            if any(solver.Value(h) for sl, h in holes.items() if h.Name().startswith(f'h_{t}_{day}')):
-                for sl in GLOBAL_SCHEDULING_TIMES:
-                    if solver.Value(holes[(t, day, sl)]):
-                        orario_docenti[(day, sl)][t] = "BUCO"
+            for sl in GLOBAL_SCHEDULING_TIMES:
+                if solver.Value(holes[(t, day, sl)]):
+                    orario_docenti[(day, sl)][t] = "BUCO"
 
     for day in GIORNI:
         for sched_label in GLOBAL_SCHEDULING_TIMES:

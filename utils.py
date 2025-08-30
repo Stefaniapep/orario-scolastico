@@ -50,7 +50,8 @@ def load_config(config_path='config.json'):
         generic_constraint_flags = [
             'USE_MAX_DAILY_HOURS_PER_CLASS',
             'USE_CONSECUTIVE_BLOCKS',
-            'USE_MAX_ONE_HOLE'
+            'USE_MAX_ONE_HOLE',
+            'USE_OPTIMIZE_HOLES'
         ]
         for flag in generic_constraint_flags:
             config.setdefault(flag, True)
