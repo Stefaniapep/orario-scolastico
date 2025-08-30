@@ -14,6 +14,7 @@ import ctypes
 # Import necessari affinché PyInstaller includa questi moduli nel bundle
 import engine  # noqa: F401
 import utils  # noqa: F401
+import version  # noqa: F401
 import pandas as _pandas  # noqa: F401
 import openpyxl  # noqa: F401
 from ortools.sat.python import cp_model as _cp_model  # noqa: F401

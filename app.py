@@ -8,8 +8,36 @@ import os
 # Importa il motore di calcolo e i dati di default
 from engine import generate_schedule
 from utils import load_config, save_config
+from version import get_version, get_full_version
 
 # --- Funzioni di supporto per l'UI ---
+def show_loading_spinner(message="Caricamento in corso..."):
+    """Mostra un indicatore di caricamento personalizzato"""
+    return st.markdown(f"""
+    <div class="loading-container">
+        <div class="custom-spinner"></div>
+        <span>{message}</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+def show_advanced_loading(message="Elaborazione in corso...", steps=None):
+    """Mostra un indicatore di caricamento avanzato con step opzionali"""
+    if steps:
+        steps_html = "<br>".join([f"• {step}" for step in steps])
+        return st.markdown(f"""
+        <div class="loading-container">
+            <div class="custom-spinner"></div>
+            <div>
+                <div style="font-weight: 600; margin-bottom: 8px;">{message}</div>
+                <div style="font-size: 14px; opacity: 0.8; line-height: 1.4;">
+                    {steps_html}
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        return show_loading_spinner(message)
+
 def dataframe_to_excel_bytes(dfs):
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -348,7 +376,136 @@ if 'config' not in st.session_state:
 
 # --- INTERFACCIA UTENTE ---
 st.set_page_config(layout="wide", page_title="Generatore Orario Scolastico")
+
+# CSS personalizzato per sostituire l'indicatore di caricamento con una rotella semplice
+st.markdown("""
+<style>
+/* Nasconde l'indicatore di running default di Streamlit */
+[data-testid="stStatusWidgetRunningIcon"] {
+    display: none !important;
+}
+
+[data-testid="stStatusWidget"] {
+    display: none !important;
+}
+
+/* Crea un nuovo indicatore di caricamento con rotella semplice */
+.custom-spinner {
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    border: 3px solid #e3e3e3;
+    border-top: 3px solid #ff6b6b;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-right: 12px;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Stile per il container del caricamento */
+.loading-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px 20px;
+    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    border: 1px solid #e1e5e9;
+    border-radius: 10px;
+    margin: 15px 0;
+    font-size: 16px;
+    font-weight: 500;
+    color: #2c3e50;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.02); }
+    100% { transform: scale(1); }
+}
+
+/* Migliora l'aspetto generale dell'app */
+.main .block-container {
+    padding-top: 2rem;
+    padding-bottom: 2rem;
+}
+
+/* Stile per i bottoni di azione */
+.stButton > button {
+    background: linear-gradient(45deg, #ff6b6b, #ff8a80);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 0.6rem 1.2rem;
+    font-weight: 600;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 8px rgba(255, 107, 107, 0.2);
+}
+
+.stButton > button:hover {
+    background: linear-gradient(45deg, #ff5252, #ff6b6b);
+    box-shadow: 0 4px 15px rgba(255, 107, 107, 0.4);
+    transform: translateY(-2px);
+}
+
+.stButton > button:active {
+    transform: translateY(0);
+}
+
+/* Stile per le sezioni espandibili */
+.streamlit-expanderHeader {
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    border: 1px solid #e9ecef;
+}
+
+/* Nasconde completamente tutti gli indicatori di stato di Streamlit */
+.stApp [data-testid="stStatusWidget"],
+.stApp [data-testid="stStatusWidgetRunningIcon"],
+.stApp .stSpinner {
+    display: none !important;
+    visibility: hidden !important;
+}
+
+/* Migliora l'aspetto dei dataframe */
+.dataframe {
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+/* Stile per i messaggi di successo */
+.stSuccess {
+    border-radius: 8px;
+    border-left: 4px solid #28a745;
+}
+
+/* Stile per i messaggi di errore */
+.stError {
+    border-radius: 8px;
+    border-left: 4px solid #dc3545;
+}
+
+/* Stile per i messaggi di warning */
+.stWarning {
+    border-radius: 8px;
+    border-left: 4px solid #ffc107;
+}
+</style>
+""", unsafe_allow_html=True)
+
 st.title("Generatore Orario Scolastico Interattivo")
+
+# Mostra informazioni sulla versione nella sidebar
+with st.sidebar:
+    version_info = get_full_version()
+    st.markdown(f"**{version_info['app_name']}** v{version_info['version']}")
+    st.caption(f"Autore: {version_info['author']}")
 st.caption("Un'applicazione per configurare e generare l'orario scolastico in modo semplice e intuitivo.")
 
 # --- UI DI CONFIGURAZIONE IN UN ACCORDION ---
@@ -412,6 +569,7 @@ with st.expander("⚙️ **Apri per configurare Dati e Vincoli**", expanded=Fals
         c1, c2 = st.columns([3, 1])
         with c1: new_teacher_name = st.text_input("Nome del nuovo docente", key="new_teacher_name")
         with c2:
+            st.markdown("<div style='margin-top: 25px;'></div>", unsafe_allow_html=True)
             if st.button("Aggiungi Docente", use_container_width=True, key="add_teacher_btn"):
                 if new_teacher_name and new_teacher_name not in st.session_state.config['ASSEGNAZIONE_DOCENTI']:
                     st.session_state.config['ASSEGNAZIONE_DOCENTI'][new_teacher_name] = {}; st.rerun()
@@ -682,8 +840,15 @@ with st.expander("⚙️ **Apri per configurare Dati e Vincoli**", expanded=Fals
 # --- Pulsante di Generazione e Area Risultati ---
 st.divider()
 if st.button("🚀 **GENERA ORARIO**", use_container_width=True, type="primary"):
+    # Mostra indicatore durante la validazione
+    validation_placeholder = st.empty()
+    with validation_placeholder.container():
+        show_loading_spinner("🔍 Validazione configurazione in corso...")
+    
     # Valida e salva il config prima di generare
     ok, errs, warns = validate_config(st.session_state.config)
+    validation_placeholder.empty()
+    
     if warns:
         for w in warns:
             st.warning(w)
@@ -699,8 +864,28 @@ if st.button("🚀 **GENERA ORARIO**", use_container_width=True, type="primary")
         st.error(f"Errore nel salvataggio della configurazione: {e}")
         st.stop()
 
-    with st.spinner("Elaborazione in corso... Potrebbe richiedere fino a 5 minuti."):
+    # Mostra l'indicatore di caricamento personalizzato avanzato
+    loading_placeholder = st.empty()
+    with loading_placeholder.container():
+        show_advanced_loading(
+            "🔄 Generazione orario in corso...", 
+            [
+                "Analisi vincoli e configurazione",
+                "Costruzione modello matematico", 
+                "Ricerca soluzione ottimale",
+                "Validazione risultati",
+                "Preparazione output Excel"
+            ]
+        )
+    
+    try:
         df_classi, df_docenti, log_output, diagnostics_output = generate_schedule(st.session_state.config)
+        # Rimuove l'indicatore di caricamento
+        loading_placeholder.empty()
+    except Exception as e:
+        loading_placeholder.empty()
+        st.error(f"Errore durante la generazione: {e}")
+        st.stop()
     if df_classi is not None and df_docenti is not None:
         st.success("🎉 Orario generato con successo!")
         st.info(f"Il file 'orario_settimanale.xlsx' è stato salvato automaticamente nella cartella: `{os.getcwd()}`")

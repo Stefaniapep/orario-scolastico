@@ -277,8 +277,8 @@
         "5A",
         "VEN",
         "11:00",
-        4.0
-      ]
+        2.0
+      ],
     ]
   },
   "GROUP_DAILY_TWO_CLASSES": [
@@ -355,5 +355,5 @@
   "MAX_DAILY_HOURS_PER_CLASS": 3.5,
   "USE_CONSECUTIVE_BLOCKS": true,
   "USE_MAX_ONE_HOLE": true,
-  "USE_OPTIMIZE_HOLES": false
+  "USE_OPTIMIZE_HOLES": true
 }

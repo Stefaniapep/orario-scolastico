@@ -99,7 +99,7 @@ pip install -r requirements.txt
 
 ---
 
-## ▶️ Esecuzione ()
+## ▶️ Esecuzione 
 
 Esegui lo script principale dalla cartella del progetto:
 

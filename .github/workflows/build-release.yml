@@ -1,0 +1,260 @@
+name: Build and Release GeneraOrarioApp
+
+on:
+  push:
+    branches: [ main ]
+    paths: 
+      - 'version.py'  # Trigger quando cambia version.py
+  workflow_dispatch:  # Allow manual trigger
+    inputs:
+      version:
+        description: 'Version to build (leave empty to use version.py)'
+        required: false
+        type: string
+
+jobs:
+  check-version-change:
+    runs-on: ubuntu-latest
+    outputs:
+      should-build: ${{ steps.check.outputs.should-build }}
+      version: ${{ steps.extract.outputs.version }}
+      version-changed: ${{ steps.check.outputs.version-changed }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 2  # Needed to compare with previous commit
+        
+    - name: Check if version changed
+      id: check
+      run: |
+        # Check if this is a manual workflow dispatch
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "should-build=true" >> $GITHUB_OUTPUT
+          echo "version-changed=manual" >> $GITHUB_OUTPUT
+          echo "Manual workflow trigger detected"
+          exit 0
+        fi
+        
+        # Get the changed lines in version.py
+        if git diff HEAD~1 HEAD --name-only | grep -q "version.py"; then
+          echo "version.py was modified"
+          
+          # Check if __version__, __app_name__, __description__, or __author__ changed
+          changed_lines=$(git diff HEAD~1 HEAD version.py | grep "^[+-]" | grep -E "__version__|__app_name__|__description__|__author__")
+          
+          if [ -n "$changed_lines" ]; then
+            echo "Version-related lines changed:"
+            echo "$changed_lines"
+            echo "should-build=true" >> $GITHUB_OUTPUT
+            echo "version-changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "version.py changed but no version-related lines modified"
+            echo "should-build=false" >> $GITHUB_OUTPUT
+            echo "version-changed=false" >> $GITHUB_OUTPUT
+          fi
+        else
+          echo "version.py not modified in this commit"
+          echo "should-build=false" >> $GITHUB_OUTPUT
+          echo "version-changed=false" >> $GITHUB_OUTPUT
+        fi
+        
+    - name: Extract version information
+      id: extract
+      if: steps.check.outputs.should-build == 'true'
+      run: |
+        if [ -n "${{ github.event.inputs.version }}" ]; then
+          version="${{ github.event.inputs.version }}"
+          echo "Using manual version: $version"
+        else
+          version=$(python3 -c "import sys; sys.path.insert(0, '.'); from version import get_version; print(get_version())")
+          echo "Using version.py version: $version"
+        fi
+        echo "version=$version" >> $GITHUB_OUTPUT
+
+  build:
+    runs-on: windows-latest
+    needs: check-version-change
+    if: needs.check-version-change.outputs.should-build == 'true'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~\AppData\Local\pip\Cache
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+          
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
+        
+    - name: Set build variables
+      id: vars
+      run: |
+        $version = "${{ needs.check-version-change.outputs.version }}"
+        echo "version=$version" >> $env:GITHUB_OUTPUT
+        echo "app_name=GeneraOrarioApp" >> $env:GITHUB_OUTPUT
+        echo "artifact_name=GeneraOrarioApp-v$version-windows-x64" >> $env:GITHUB_OUTPUT
+        echo "tag_name=v$version" >> $env:GITHUB_OUTPUT
+        
+    - name: Verify dependencies and imports
+      run: |
+        python -c "import streamlit; print('Streamlit OK')"
+        python -c "import ortools; print('OR-Tools OK')"
+        python -c "import pandas; print('Pandas OK')"
+        python -c "import openpyxl; print('OpenPyXL OK')"
+        python -c "from engine import generate_schedule; print('Engine OK')"
+        python -c "from utils import load_config; print('Utils OK')"
+        python -c "from version import get_version; print(f'Version: {get_version()}')"
+        
+    - name: Build executable with PyInstaller
+      run: |
+        pyinstaller --clean --name "GeneraOrarioApp" --onefile --console --add-data "app.py;." --add-data "config.json;." --add-data "version.py;." --collect-all streamlit --collect-all ortools --noconfirm streamlit_wrapper.py
+        
+    - name: Verify build output
+      run: |
+        if (Test-Path "dist\GeneraOrarioApp.exe") {
+          $fileSize = (Get-Item "dist\GeneraOrarioApp.exe").Length
+          echo "Build successful! Executable size: $([math]::Round($fileSize/1MB, 2)) MB"
+          
+          # Test if the executable can start (quick check)
+          echo "Testing executable..."
+          try {
+            $process = Start-Process -FilePath "dist\GeneraOrarioApp.exe" -ArgumentList "--help" -PassThru -NoNewWindow -Wait -ErrorAction Stop
+            echo "Executable test completed"
+          } catch {
+            echo "Warning: Could not test executable (this is normal for GUI apps)"
+          }
+        } else {
+          echo "ERROR: Build failed - executable not found!"
+          exit 1
+        }
+        
+    - name: Create release package
+      run: |
+        $version = "${{ steps.vars.outputs.version }}"
+        $packageName = "${{ steps.vars.outputs.artifact_name }}"
+        
+        # Create release directory
+        New-Item -ItemType Directory -Path "release" -Force
+        
+        # Copy executable
+        Copy-Item "dist\GeneraOrarioApp.exe" "release\"
+        
+        # Copy documentation and config
+        Copy-Item "README.md" "release\" -ErrorAction SilentlyContinue
+        Copy-Item "config.json" "release\config-template.json"
+        Copy-Item "LICENSE" "release\" -ErrorAction SilentlyContinue
+        
+        # Create version info file
+        "GeneraOrarioApp v$version" | Out-File "release\BUILD_INFO.txt" -Encoding UTF8
+        "========================" | Out-File "release\BUILD_INFO.txt" -Append -Encoding UTF8
+        "" | Out-File "release\BUILD_INFO.txt" -Append -Encoding UTF8
+        "Build Information:" | Out-File "release\BUILD_INFO.txt" -Append -Encoding UTF8
+        "- Version: $version" | Out-File "release\BUILD_INFO.txt" -Append -Encoding UTF8
+        "- Build Date: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTC')" | Out-File "release\BUILD_INFO.txt" -Append -Encoding UTF8
+        "- Git Commit: ${{ github.sha }}" | Out-File "release\BUILD_INFO.txt" -Append -Encoding UTF8
+        "- Built from: ${{ github.ref }}" | Out-File "release\BUILD_INFO.txt" -Append -Encoding UTF8
+        "" | Out-File "release\BUILD_INFO.txt" -Append -Encoding UTF8
+        "Usage:" | Out-File "release\BUILD_INFO.txt" -Append -Encoding UTF8
+        "1. Run GeneraOrarioApp.exe" | Out-File "release\BUILD_INFO.txt" -Append -Encoding UTF8
+        "2. Configure your school schedule parameters" | Out-File "release\BUILD_INFO.txt" -Append -Encoding UTF8
+        "3. Generate your timetable" | Out-File "release\BUILD_INFO.txt" -Append -Encoding UTF8
+        "" | Out-File "release\BUILD_INFO.txt" -Append -Encoding UTF8
+        "For more information, see README.md" | Out-File "release\BUILD_INFO.txt" -Append -Encoding UTF8
+        
+        # Create ZIP package
+        Compress-Archive -Path "release\*" -DestinationPath "$packageName.zip"
+        
+        echo "Created release package: $packageName.zip"
+        
+    - name: Upload artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: ${{ steps.vars.outputs.artifact_name }}
+        path: ${{ steps.vars.outputs.artifact_name }}.zip
+        retention-days: 90
+        
+    - name: Create Git Tag
+      run: |
+        $tagName = "${{ steps.vars.outputs.tag_name }}"
+        $version = "${{ steps.vars.outputs.version }}"
+        
+        # Configure git
+        git config user.name "GitHub Actions"
+        git config user.email "actions@github.com"
+        
+        # Check if tag already exists
+        $existingTag = git tag -l $tagName
+        if ($existingTag) {
+          echo "Tag $tagName already exists, skipping tag creation"
+        } else {
+          # Create and push tag
+          git tag -a $tagName -m "Release version $version - Built by GitHub Actions"
+          git push origin $tagName
+          echo "Created and pushed tag: $tagName"
+        }
+        
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.vars.outputs.tag_name }}
+        files: ${{ steps.vars.outputs.artifact_name }}.zip
+        name: "GeneraOrarioApp v${{ steps.vars.outputs.version }}"
+        body: |
+          ## GeneraOrarioApp v${{ steps.vars.outputs.version }}
+          
+          ### 🚀 Novità in questa versione
+          - Generazione automatica di orari scolastici
+          - Interfaccia web interattiva con Streamlit
+          - Esportazione in formato Excel
+          - Validazione avanzata dei vincoli
+          - Assegnazioni specifiche docenti-classi
+          
+          ### 📥 Download
+          - **Windows**: `${{ steps.vars.outputs.artifact_name }}.zip`
+          
+          ### 🛠️ Installazione
+          1. Scarica il file ZIP
+          2. Estrai in una cartella di tua scelta
+          3. Esegui `GeneraOrarioApp.exe`
+          4. Il browser si aprirà automaticamente con l'interfaccia
+          
+          ### 📋 Requisiti di Sistema
+          - Windows 10/11 (64-bit)
+          - Nessuna installazione Python richiesta
+          
+          ### 🔧 Build Info
+          - Commit: ${{ github.sha }}
+          - Trigger: ${{ needs.check-version-change.outputs.version-changed }}
+          - Build Number: ${{ github.run_number }}
+          
+          ---
+          
+          *Questa release è stata generata automaticamente da GitHub Actions quando è stata modificata la versione nel codice.*
+          
+        draft: false
+        prerelease: false
+        token: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Summary
+      run: |
+        echo "## Build Summary" >> $env:GITHUB_STEP_SUMMARY
+        echo "- **Version**: ${{ steps.vars.outputs.version }}" >> $env:GITHUB_STEP_SUMMARY
+        echo "- **Tag Created**: ${{ steps.vars.outputs.tag_name }}" >> $env:GITHUB_STEP_SUMMARY
+        echo "- **Artifact**: ${{ steps.vars.outputs.artifact_name }}.zip" >> $env:GITHUB_STEP_SUMMARY
+        echo "- **Build Status**: ✅ Success" >> $env:GITHUB_STEP_SUMMARY
+        echo "- **Release**: Created automatically with tag" >> $env:GITHUB_STEP_SUMMARY
+        echo "- **Trigger**: ${{ needs.check-version-change.outputs.version-changed }}" >> $env:GITHUB_STEP_SUMMARY
