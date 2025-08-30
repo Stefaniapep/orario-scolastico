@@ -1,6 +1,13 @@
 # Generatore Orario Classi e Docenti
 
-[![License](https://img.shields.io/github/license/OWNER/REPO)](./LICENSE)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/Stefaniapep/orario-scolastico/build-release.yml?branch=main&label=Build&logo=github)](https://github.com/Stefaniapep/orario-scolastico/actions/workflows/build-release.yml)
+[![Latest Release](https://img.shields.io/github/v/release/Stefaniapep/orario-scolastico?label=Latest%20Release&logo=github)](https://github.com/Stefaniapep/orario-scolastico/releases/latest)
+[![Download Count](https://img.shields.io/github/downloads/Stefaniapep/orario-scolastico/total?label=Downloads&logo=github)](https://github.com/Stefaniapep/orario-scolastico/releases)
+[![License](https://img.shields.io/github/license/Stefaniapep/orario-scolastico?label=License)](./LICENSE)
+[![Python Version](https://img.shields.io/badge/python-3.8%2B-blue?logo=python)](https://www.python.org/)
+[![Streamlit](https://img.shields.io/badge/streamlit-1.28%2B-red?logo=streamlit)](https://streamlit.io/)
+
+> **🚀 Rilasci Automatici**: Questo progetto utilizza GitHub Actions per build e release automatiche. Ogni modifica alla versione in `version.py` genera automaticamente un nuovo rilascio con eseguibile Windows pronto all'uso!
 
 Genera automaticamente l'orario settimanale per un insieme di classi e docenti, rispettando vincoli generici e specifici configurabili tramite file `config.json` o tramite GUI (Streamlit).
 
@@ -47,7 +54,53 @@ Nota: La GUI valida e salva automaticamente la configurazione in `config.json` q
 
 ---
 
-## 🔧 Dati personalizzabili
+## � Sistema di Release Automatico
+
+Questo progetto utilizza **GitHub Actions** per automatizzare completamente il processo di build e release:
+
+### Come Funziona
+
+1. **Trigger**: Modifica il file `version.py` (le righe `__version__`, `__app_name__`, `__description__`, `__author__`)
+2. **Build Automatico**: GitHub Actions compila automaticamente l'applicazione Windows con PyInstaller
+3. **Release Automatica**: Crea un tag Git e una GitHub Release con:
+   - Eseguibile Windows (.zip)
+   - Note di rilascio generate automaticamente
+   - Badge di versione aggiornati
+
+### Per Rilasciare una Nuova Versione
+
+```python
+# Modifica version.py
+__version__ = "1.3.0"  # Incrementa la versione
+__app_name__ = "GeneraOrarioApp"
+__description__ = "Generatore Orario Scolastico"
+__author__ = "Il Tuo Nome"
+```
+
+Poi fai commit e push:
+
+```bash
+git add version.py
+git commit -m "Rilascio versione 1.3.0"
+git push origin main
+```
+
+**Risultato**: In pochi minuti avrai automaticamente:
+
+- ✅ Tag Git `v1.3.0`
+- ✅ GitHub Release con eseguibile Windows
+- ✅ Badge aggiornati nel README
+- ✅ Download pronti per gli utenti
+
+### Monitoraggio
+
+- **Build Status**: ![Build Status](https://img.shields.io/github/actions/workflow/status/Stefaniapep/orario-scolastico/build-release.yml?branch=main)
+- **Ultima Release**: Controlla la sezione [Releases](https://github.com/Stefaniapep/orario-scolastico/releases)
+- **Log Build**: Vai su [Actions](https://github.com/Stefaniapep/orario-scolastico/actions) per vedere i dettagli
+
+---
+
+## �🔧 Dati personalizzabili
 
 Esempio di campi principali del `config.json`:
 
@@ -69,7 +122,25 @@ Esempio di campi principali del `config.json`:
 
 ---
 
-## 🚀 Installazione
+## � Download Eseguibile
+
+**Non vuoi installare Python?** Scarica l'eseguibile Windows pronto all'uso!
+
+[![Download Latest](https://img.shields.io/github/v/release/Stefaniapep/orario-scolastico?label=Download%20Latest&style=for-the-badge&logo=github&color=success)](https://github.com/Stefaniapep/orario-scolastico/releases/latest)
+
+### Istruzioni Download
+
+1. Vai alla pagina [Releases](https://github.com/Stefaniapep/orario-scolastico/releases)
+2. Scarica il file `.zip` più recente (es. `GeneraOrarioApp-v1.2.0-windows-x64.zip`)
+3. Estrai il contenuto in una cartella
+4. Esegui `GeneraOrarioApp.exe`
+5. Il browser si aprirà automaticamente con l'interfaccia!
+
+**Requisiti**: Solo Windows 10/11 (64-bit) - nessuna installazione Python necessaria.
+
+---
+
+## �🚀 Installazione da Codice Sorgente
 
 Prerequisiti: `Python 3.8+` e `git`.
 
@@ -99,7 +170,7 @@ pip install -r requirements.txt
 
 ---
 
-## ▶️ Esecuzione 
+## ▶️ Esecuzione
 
 Esegui lo script principale dalla cartella del progetto:
 
