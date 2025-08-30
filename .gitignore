@@ -26,3 +26,11 @@ Thumbs.db
 
 build/
 dist/
+*.exe
+*.pkg
+*.dmg
+*.app
+*.msi
+
+# PyInstaller spec files output
+*.spec.tmp
