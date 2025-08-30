@@ -1,4 +1,3 @@
-
 # 📘 Generatore Orario Classi e Docenti
 
 Genera automaticamente l'orario settimanale per un insieme di classi e docenti, rispettando vincoli generici e specifici configurabili tramite file `config.json` o tramite GUI (Streamlit).
@@ -121,7 +120,7 @@ Il file `orario_settimanale.xlsx` verrà salvato nella cartella corrente. La GUI
 - Solo motore (CLI):
 
 ```bash
- pyinstaller --clean --name "GeneraOrario" --onefile --console --add-data "config.json;." --add-data "utils.py;." --collect-all ortools genera_orario_engine.py
+pyinstaller --clean --name "GeneraOrario" --onefile --console --add-data "config.json;." --add-data "utils.py;." --collect-all ortools genera_orario_engine.py
 ```
 
 - GUI Streamlit con wrapper dedicato:

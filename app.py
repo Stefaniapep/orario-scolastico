@@ -21,11 +21,15 @@ def dataframe_to_excel_bytes(dfs):
 
 def style_days(row):
     day_colors = {"LUN": "#FFFFCC", "MAR": "#CCFFCC", "MER": "#CCE5FF", "GIO": "#FFDDCC", "VEN": "#E5CCFF"}
-    day = row.name[:3]
-    color = day_colors.get(day, "")
-    if color:
-        style = f'background-color: {color}; color: black;'
-        return [style] * len(row)
+    
+    # Gestisci il caso in cui row.name potrebbe essere un numero o una stringa
+    if isinstance(row.name, str) and len(row.name) >= 3:
+        day = row.name[:3]
+        color = day_colors.get(day, "")
+        if color:
+            style = f'background-color: {color}; color: black;'
+            return [style] * len(row)
+    
     return [''] * len(row)
 
 
@@ -330,7 +334,7 @@ with st.expander("⚙️ **Apri per configurare Dati e Vincoli**", expanded=Fals
                     del st.session_state.config['ONLY_DAYS']
             
             with st.container(border=True):
-                use_constraint = st.checkbox("**Minimo 2 ore/giorno se presente (per docenti specifici)**", 
+                use_constraint = st.checkbox("**Minimo 2 ore/giorno di servizio se presente (per docenti specifici)**", 
                                             value='MIN_TWO_HOURS_IF_PRESENT_SPECIFIC' in st.session_state.config)
                 if use_constraint:
                     st.session_state.config.setdefault('MIN_TWO_HOURS_IF_PRESENT_SPECIFIC', set())
@@ -388,11 +392,26 @@ with st.expander("⚙️ **Apri per configurare Dati e Vincoli**", expanded=Fals
                 )
 
             with st.container(border=True):
-                st.session_state.config['USE_MAX_DAILY_HOURS_PER_CLASS'] = st.checkbox(
-                    "**Massimo 4 ore/giorno per docente nella stessa classe**",
-                    value=st.session_state.config.get('USE_MAX_DAILY_HOURS_PER_CLASS', True),
-                    help="Impedisce che un docente tenga più di 4 ore di lezione nella stessa classe in un singolo giorno."
-                )
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    st.session_state.config['USE_MAX_DAILY_HOURS_PER_CLASS'] = st.checkbox(
+                        "**Massimo ore/giorno per docente nella stessa classe**",
+                        value=st.session_state.config.get('USE_MAX_DAILY_HOURS_PER_CLASS', True),
+                        help="Impedisce che un docente tenga più del numero specificato di ore di lezione nella stessa classe in un singolo giorno."
+                    )
+                with col2:
+                    if st.session_state.config.get('USE_MAX_DAILY_HOURS_PER_CLASS', True):
+                        st.session_state.config['MAX_DAILY_HOURS_PER_CLASS'] = st.number_input(
+                            "Max ore",
+                            min_value=1.0,
+                            max_value=8.0,
+                            value=st.session_state.config.get('MAX_DAILY_HOURS_PER_CLASS', 4.0),
+                            step=0.5,
+                            help="Numero massimo di ore che un docente può insegnare nella stessa classe in un giorno"
+                        )
+                    else:
+                        # Se il vincolo è disattivato, rimuovi la configurazione o imposta un default
+                        st.session_state.config['MAX_DAILY_HOURS_PER_CLASS'] = st.session_state.config.get('MAX_DAILY_HOURS_PER_CLASS', 4.0)
 
             with st.container(border=True):
                 st.session_state.config['USE_CONSECUTIVE_BLOCKS'] = st.checkbox(
@@ -428,7 +447,7 @@ if st.button("🚀 **GENERA ORARIO**", use_container_width=True, type="primary")
         st.error(f"Errore nel salvataggio della configurazione: {e}")
         st.stop()
 
-    with st.spinner("Elaborazione in corso... Potrebbe richiedere fino a 2 minuti."):
+    with st.spinner("Elaborazione in corso... Potrebbe richiedere fino a 5 minuti."):
         df_classi, df_docenti, log_output, diagnostics_output = generate_schedule(st.session_state.config)
     if df_classi is not None and df_docenti is not None:
         st.success("🎉 Orario generato con successo!")

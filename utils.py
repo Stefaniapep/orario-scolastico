@@ -56,6 +56,9 @@ def load_config(config_path='config.json'):
         for flag in generic_constraint_flags:
             config.setdefault(flag, True)
 
+        # Parametri numerici per i vincoli generici
+        config.setdefault('MAX_DAILY_HOURS_PER_CLASS', 4.0)
+
         # Riconverte le liste in set dove necessario
         if 'GROUP_DAILY_TWO_CLASSES' in config:
             config['GROUP_DAILY_TWO_CLASSES'] = set(config['GROUP_DAILY_TWO_CLASSES'])

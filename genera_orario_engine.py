@@ -42,6 +42,7 @@ def generate_schedule(config):
     
     # Carica le flag per i vincoli generici
     USE_MAX_DAILY_HOURS_PER_CLASS = config.get('USE_MAX_DAILY_HOURS_PER_CLASS', True)
+    MAX_DAILY_HOURS_PER_CLASS = config.get('MAX_DAILY_HOURS_PER_CLASS', 4.0)
     USE_CONSECUTIVE_BLOCKS = config.get('USE_CONSECUTIVE_BLOCKS', True)
     USE_MAX_ONE_HOLE = config.get('USE_MAX_ONE_HOLE', True)
     USE_OPTIMIZE_HOLES = config.get('USE_OPTIMIZE_HOLES', True)
@@ -136,13 +137,13 @@ def generate_schedule(config):
 
     # --- VINCOLI GENERICI ---
     if USE_MAX_DAILY_HOURS_PER_CLASS:
-        log_messages.append("- Vincolo ATTIVO: Massimo 4 ore per docente per classe al giorno")
+        log_messages.append(f"- Vincolo ATTIVO: Massimo {MAX_DAILY_HOURS_PER_CLASS} ore per docente per classe al giorno")
         for t, assignments in ASSEGNAZIONE_DOCENTI.items():
             for cl in assignments:
                 if cl == 'copertura': continue
                 for day in GIORNI:
                     daily_class_units = sum(x.get((cl, day, s_idx, t), 0) * u for s_idx, (sl, fl, u) in enumerate(class_slots[cl][day]))
-                    model.Add(daily_class_units <= hours_to_units(4))
+                    model.Add(daily_class_units <= hours_to_units(MAX_DAILY_HOURS_PER_CLASS))
 
     # --- VINCOLI SPECIFICI (attivati dalla presenza dei dati) ---
     if LIMIT_ONE_PER_DAY_PER_CLASS:
@@ -294,10 +295,15 @@ def generate_schedule(config):
     log_messages.append(f"Vincoli specifici attivi: {active_constraints_for_report if active_constraints_for_report else ['Nessuno']}")
     if USE_OPTIMIZE_HOLES:
         log_messages.append("\nAvvio ottimizzazione modello (minimizzazione buchi)...")
+        log_messages.append("⏳ Risoluzione in corso... Questo può richiedere fino a 5 minuti per configurazioni complesse")
     else:
         log_messages.append("\nAvvio ricerca soluzione valida (senza ottimizzazione)...")
-    solver = cp_model.CpSolver(); solver.parameters.max_time_in_seconds = 120; solver.parameters.num_search_workers=os.cpu_count() or 8;
+        log_messages.append("⏳ Risoluzione in corso... Questo può richiedere fino a 5 minuti per configurazioni complesse")
+    solver = cp_model.CpSolver(); 
+    solver.parameters.max_time_in_seconds = 300;  # Aumentato a 5 minuti
+    solver.parameters.num_search_workers = os.cpu_count() or 8;
     solver.parameters.randomize_search = True
+    solver.parameters.log_search_progress = True  # Log del progresso per debug
     res = solver.Solve(model)
 
     # --- 8. DIAGNOSTICA POST-RISOLUZIONE ---
@@ -339,8 +345,8 @@ def generate_schedule(config):
                     if cl == 'copertura': continue
                     for day in GIORNI:
                         found_units = sum(solver.Value(x.get((cl, day, s_idx, t), 0)) * u for s_idx, (_, _, u) in enumerate(class_slots[cl][day]))
-                        if found_units > hours_to_units(4): is_ok_max_daily = False; details_max_daily.append(f"  - FAIL: {t} in {cl} il {day} ha {units_to_hours(found_units)}h (> 4h).")
-            diagnostics_report.append(f"[{'PASS' if is_ok_max_daily else 'FAIL'}] Massimo 4 ore/giorno per docente nella stessa classe"); diagnostics_report.extend(details_max_daily)
+                        if found_units > hours_to_units(MAX_DAILY_HOURS_PER_CLASS): is_ok_max_daily = False; details_max_daily.append(f"  - FAIL: {t} in {cl} il {day} ha {units_to_hours(found_units)}h (> {MAX_DAILY_HOURS_PER_CLASS}h).")
+            diagnostics_report.append(f"[{'PASS' if is_ok_max_daily else 'FAIL'}] Massimo {MAX_DAILY_HOURS_PER_CLASS} ore/giorno per docente nella stessa classe"); diagnostics_report.extend(details_max_daily)
 
         if USE_MAX_ONE_HOLE:
             max_blocks_found = 0; violations = []
@@ -461,48 +467,367 @@ def generate_schedule(config):
 
     # --- 9. GENERAZIONE OUTPUT ---
     log_messages.append("\nSoluzione trovata. Generazione output...")
+    log_messages.append("⏳ Elaborazione dati per Excel...")
     
+    def format_duration(hours):
+        """Formatta la durata in formato (1h 30m) o (1h)"""
+        if hours == 0:
+            return ""
+        h = int(hours)
+        m = int((hours - h) * 60)
+        if m == 0:
+            return f"({h}h)"
+        else:
+            return f"({h}h {m}m)"
+    
+    def process_consecutive_entries_by_day(column_data, slot_labels):
+        """
+        Processa una colonna per raggruppare le voci consecutive uguali,
+        ma solo all'interno della stessa giornata.
+        """
+        if not column_data or len(column_data) == 0:
+            return column_data
+            
+        def extract_name_and_duration(cell_text):
+            """Estrae il nome base e la durata da una cella"""
+            if not cell_text or cell_text == "" or str(cell_text).lower() == "nan":
+                return None, 0
+            
+            cell_text = str(cell_text).strip()
+            if "(" in cell_text and ")" in cell_text:
+                try:
+                    name = cell_text.split("(")[0].strip()
+                    duration_str = cell_text.split("(")[1].split(")")[0]
+                    
+                    # Parse della durata (es: "1h", "1h 30m", "2h")
+                    hours = 0
+                    minutes = 0
+                    
+                    if "h" in duration_str:
+                        parts = duration_str.split("h")
+                        try:
+                            hours = int(parts[0].strip())
+                        except:
+                            hours = 1
+                        
+                        if len(parts) > 1 and parts[1].strip():
+                            minute_part = parts[1].strip()
+                            if "m" in minute_part:
+                                try:
+                                    minutes = int(minute_part.replace("m", "").strip())
+                                except:
+                                    minutes = 0
+                    
+                    duration = hours + minutes / 60.0
+                    return name, duration
+                except:
+                    # Se il parsing fallisce, tratta come testo normale
+                    return cell_text, 1.0
+            else:
+                # Nessuna durata specificata, assume 1 ora
+                return cell_text, 1.0
+        
+        def get_day_from_slot(slot_label):
+            """Estrae il giorno da un'etichetta slot (es: 'LUN1' -> 'LUN')"""
+            if not slot_label or len(slot_label) < 3:
+                return ""
+            return slot_label[:3]  # Primi 3 caratteri sono il giorno
+        
+        processed = []
+        i = 0
+        max_iterations = len(column_data) * 2  # Controllo di sicurezza
+        iterations = 0
+        
+        while i < len(column_data) and iterations < max_iterations:
+            iterations += 1
+            current_name, current_duration = extract_name_and_duration(column_data[i])
+            current_day = get_day_from_slot(slot_labels[i])
+            
+            # Se cella vuota o nan, aggiungi così com'è
+            if current_name is None:
+                processed.append(column_data[i])
+                i += 1
+                continue
+            
+            # Trova tutte le celle consecutive con lo stesso nome NELLO STESSO GIORNO
+            consecutive_group = [(current_name, current_duration)]
+            j = i + 1
+            
+            while j < len(column_data):
+                next_name, next_duration = extract_name_and_duration(column_data[j])
+                next_day = get_day_from_slot(slot_labels[j])
+                
+                # Controlla se è lo stesso nome E lo stesso giorno
+                if next_name == current_name and next_day == current_day:
+                    consecutive_group.append((next_name, next_duration))
+                    j += 1
+                else:
+                    break
+            
+            # Genera l'output per il gruppo
+            if len(consecutive_group) == 1:
+                # Singola occorrenza, mantieni l'originale
+                processed.append(column_data[i])
+            else:
+                # Multiple occorrenze consecutive nello stesso giorno
+                cumulative_duration = 0
+                for k, (name, duration) in enumerate(consecutive_group):
+                    cumulative_duration += duration
+                    if k == len(consecutive_group) - 1:
+                        # Ultima occorrenza: nome + durata cumulativa totale
+                        processed.append(f"{name} {format_duration(cumulative_duration)}")
+                    else:
+                        # Tutte le altre occorrenze: solo il nome
+                        processed.append(name)
+            
+            i = j
+        
+        if iterations >= max_iterations:
+            log_messages.append("⚠️ Warning: Raggiunto limite iterazioni in process_consecutive_entries_by_day")
+            
+        return processed
+
+    def process_consecutive_entries(column_data):
+        """
+        Processa una colonna per raggruppare le voci consecutive uguali.
+        Versione ottimizzata con controlli di sicurezza.
+        """
+        if not column_data or len(column_data) == 0:
+            return column_data
+            
+        def extract_name_and_duration(cell_text):
+            """Estrae il nome base e la durata da una cella"""
+            if not cell_text or cell_text == "" or str(cell_text).lower() == "nan":
+                return None, 0
+            
+            cell_text = str(cell_text).strip()
+            if "(" in cell_text and ")" in cell_text:
+                try:
+                    name = cell_text.split("(")[0].strip()
+                    duration_str = cell_text.split("(")[1].split(")")[0]
+                    
+                    # Parse della durata (es: "1h", "1h 30m", "2h")
+                    hours = 0
+                    minutes = 0
+                    
+                    if "h" in duration_str:
+                        parts = duration_str.split("h")
+                        try:
+                            hours = int(parts[0].strip())
+                        except:
+                            hours = 1
+                        
+                        if len(parts) > 1 and parts[1].strip():
+                            minute_part = parts[1].strip()
+                            if "m" in minute_part:
+                                try:
+                                    minutes = int(minute_part.replace("m", "").strip())
+                                except:
+                                    minutes = 0
+                    
+                    duration = hours + minutes / 60.0
+                    return name, duration
+                except:
+                    # Se il parsing fallisce, tratta come testo normale
+                    return cell_text, 1.0
+            else:
+                # Nessuna durata specificata, assume 1 ora
+                return cell_text, 1.0
+        
+        processed = []
+        i = 0
+        max_iterations = len(column_data) * 2  # Controllo di sicurezza
+        iterations = 0
+        
+        while i < len(column_data) and iterations < max_iterations:
+            iterations += 1
+            current_name, current_duration = extract_name_and_duration(column_data[i])
+            
+            # Se cella vuota o nan, aggiungi così com'è
+            if current_name is None:
+                processed.append(column_data[i])
+                i += 1
+                continue
+            
+            # Trova tutte le celle consecutive con lo stesso nome
+            consecutive_group = [(current_name, current_duration)]
+            j = i + 1
+            
+            while j < len(column_data):
+                next_name, next_duration = extract_name_and_duration(column_data[j])
+                if next_name == current_name:
+                    consecutive_group.append((next_name, next_duration))
+                    j += 1
+                else:
+                    break
+            
+            # Genera l'output per il gruppo
+            if len(consecutive_group) == 1:
+                # Singola occorrenza, mantieni l'originale
+                processed.append(column_data[i])
+            else:
+                # Multiple occorrenze consecutive
+                cumulative_duration = 0
+                for k, (name, duration) in enumerate(consecutive_group):
+                    cumulative_duration += duration
+                    if k == len(consecutive_group) - 1:
+                        # Ultima occorrenza: nome + durata cumulativa totale
+                        processed.append(f"{name} {format_duration(cumulative_duration)}")
+                    else:
+                        # Tutte le altre occorrenze: solo il nome
+                        processed.append(name)
+            
+            i = j
+        
+        if iterations >= max_iterations:
+            log_messages.append("⚠️ Warning: Raggiunto limite iterazioni in process_consecutive_entries")
+            
+        return processed
+    
+    log_messages.append("📊 Inizializzazione file Excel...")
     wb = Workbook(); day_colors = {"LUN": "FFFFCC", "MAR": "CCFFCC", "MER": "CCE5FF", "GIO": "FFDDCC", "VEN": "E5CCFF"}
     
+    # === FOGLIO CLASSI ===
+    log_messages.append("📊 Generazione foglio Classi...")
     ws_classi = wb.active; ws_classi.title = "Classi"; ws_classi.append(["Slot"] + CLASSI + ["Copertura"])
     orario_classi = defaultdict(dict); orario_copertura = defaultdict(str)
+    
     for (cl, day, s_idx, t), var in x.items():
-        if solver.Value(var) == 1: orario_classi[(day, class_slots[cl][day][s_idx][0])][cl] = t
+        if solver.Value(var) == 1: 
+            slot_key = (day, class_slots[cl][day][s_idx][0])
+            duration = units_to_hours(class_slots[cl][day][s_idx][2])
+            orario_classi[slot_key][cl] = f"{t} {format_duration(duration)}"
+            
     for (d, s_idx, t), (var, sl, fl, u) in copertura_vars.items():
-        if solver.Value(var) == 1: orario_copertura[(d, sl)] += f"{t} "
+        if solver.Value(var) == 1: 
+            duration = units_to_hours(u)
+            orario_copertura[(d, sl)] += f"{t} {format_duration(duration)} "
+    
+    # Costruisci prima tutte le righe, poi processa le colonne per raggruppamenti consecutivi
+    log_messages.append("📋 Costruzione dati tabella classi...")
+    all_rows_data = []
     for day in GIORNI:
         for sched_label in GLOBAL_SCHEDULING_TIMES:
             row_data = [EXCEL_LABELS[(day, sched_label)]] + [orario_classi.get((day, sched_label), {}).get(cl, "") for cl in CLASSI] + [orario_copertura.get((day, sched_label), "").strip()]
-            ws_classi.append(row_data)
-            for cell in ws_classi[ws_classi.max_row]: cell.fill = PatternFill(start_color=day_colors[day], end_color=day_colors[day], fill_type="solid")
+            all_rows_data.append(row_data)
+    
+    # Processa ogni colonna per i raggruppamenti consecutivi (esclusa la prima colonna che è l'etichetta)
+    # Ma considera solo raggruppamenti all'interno della stessa giornata
+    log_messages.append("🔄 Applicazione raggruppamenti consecutivi classi...")
+    for col_idx in range(1, len(all_rows_data[0])):
+        column_data = [row[col_idx] for row in all_rows_data]
+        slot_labels = [row[0] for row in all_rows_data]  # Etichette slot per identificare i giorni
+        processed_column = process_consecutive_entries_by_day(column_data, slot_labels)
+        for row_idx, processed_value in enumerate(processed_column):
+            all_rows_data[row_idx][col_idx] = processed_value
+    
+    # Aggiungi le righe processate al foglio
+    log_messages.append("📝 Scrittura foglio classi...")
+    for row_data in all_rows_data:
+        ws_classi.append(row_data)
+        # Trova il giorno dalla prima colonna per applicare il colore
+        day_label = row_data[0][:3]  # Prendi i primi 3 caratteri (LUN, MAR, ecc.)
+        for cell in ws_classi[ws_classi.max_row]: 
+            cell.fill = PatternFill(start_color=day_colors[day_label], end_color=day_colors[day_label], fill_type="solid")
 
+    # Riga vuota
+    ws_classi.append([""] * (len(CLASSI) + 2))
+    
+    # Riga totali per classi
+    log_messages.append("🧮 Calcolo totali classi...")
+    totals_row = ["TOTALE"]
+    for cl in CLASSI:
+        total_hours = sum(solver.Value(x[(cl, day, s_idx, t)]) * units_to_hours(u) for day in GIORNI for s_idx, (_, _, u) in enumerate(class_slots[cl][day]) for t in allowed_teachers_per_class[cl])
+        totals_row.append(format_duration(total_hours))
+    # Totale copertura
+    total_copertura = sum(units_to_hours(u) for (d, s_idx, t), (var, sl, fl, u) in copertura_vars.items() if solver.Value(var) == 1)
+    totals_row.append(format_duration(total_copertura))
+    ws_classi.append(totals_row)
+
+    # === FOGLIO DOCENTI ===
+    log_messages.append("👨‍🏫 Generazione foglio Docenti...")
     ws_docenti = wb.create_sheet("Docenti"); ws_docenti.append(["Slot"] + teachers)
     orario_docenti = defaultdict(dict)
+    
     for (cl, day, s_idx, t), var in x.items():
-        if solver.Value(var) == 1: orario_docenti[(day, class_slots[cl][day][s_idx][0])][t] = cl
+        if solver.Value(var) == 1: 
+            slot_key = (day, class_slots[cl][day][s_idx][0])
+            duration = units_to_hours(class_slots[cl][day][s_idx][2])
+            orario_docenti[slot_key][t] = f"{cl} {format_duration(duration)}"
+            
     for (d, s_idx, t), (var, sl, fl, u) in copertura_vars.items():
-        if solver.Value(var) == 1: orario_docenti[(d, sl)][t] = "COPERTURA"
+        if solver.Value(var) == 1: 
+            duration = units_to_hours(u)
+            orario_docenti[(d, sl)][t] = f"COPERTURA {format_duration(duration)}"
     
     # Aggiungi sempre i buchi per visualizzazione completa
+    log_messages.append("🕳️ Aggiunta buchi orari...")
     for t in teachers:
         for day in GIORNI:
             for sl in GLOBAL_SCHEDULING_TIMES:
                 if solver.Value(holes[(t, day, sl)]):
-                    orario_docenti[(day, sl)][t] = "BUCO"
+                    # Trova la durata dello slot per questo orario
+                    slot_duration = 1.0  # Default 1 ora
+                    # Cerca in tutti gli slot per trovare la durata di questo orario
+                    for slot_name, slot_times in [("SLOT_1", SLOT_1), ("SLOT_2", SLOT_2), ("SLOT_3", SLOT_3)]:
+                        for time_str, duration in slot_times:
+                            if get_scheduling_label(time_str) == sl:
+                                slot_duration = duration
+                                break
+                    orario_docenti[(day, sl)][t] = f"BUCO {format_duration(slot_duration)}"
 
+    # Costruisci prima tutte le righe, poi processa le colonne per raggruppamenti consecutivi
+    log_messages.append("📋 Costruzione dati tabella docenti...")
+    all_rows_data_docenti = []
     for day in GIORNI:
         for sched_label in GLOBAL_SCHEDULING_TIMES:
             row_data = [EXCEL_LABELS[(day, sched_label)]] + [orario_docenti.get((day, sched_label), {}).get(t, "") for t in teachers]
-            ws_docenti.append(row_data)
-            for cell in ws_docenti[ws_docenti.max_row]: cell.fill = PatternFill(start_color=day_colors[day], end_color=day_colors[day], fill_type="solid")
+            all_rows_data_docenti.append(row_data)
     
+    # Processa ogni colonna per i raggruppamenti consecutivi (esclusa la prima colonna che è l'etichetta)
+    # Ma considera solo raggruppamenti all'interno della stessa giornata
+    log_messages.append("🔄 Applicazione raggruppamenti consecutivi docenti...")
+    for col_idx in range(1, len(all_rows_data_docenti[0])):
+        column_data = [row[col_idx] for row in all_rows_data_docenti]
+        slot_labels = [row[0] for row in all_rows_data_docenti]  # Etichette slot per identificare i giorni
+        processed_column = process_consecutive_entries_by_day(column_data, slot_labels)
+        for row_idx, processed_value in enumerate(processed_column):
+            all_rows_data_docenti[row_idx][col_idx] = processed_value
+    
+    # Aggiungi le righe processate al foglio
+    log_messages.append("📝 Scrittura foglio docenti...")
+    for row_data in all_rows_data_docenti:
+        ws_docenti.append(row_data)
+        # Trova il giorno dalla prima colonna per applicare il colore
+        day_label = row_data[0][:3]  # Prendi i primi 3 caratteri (LUN, MAR, ecc.)
+        for cell in ws_docenti[ws_docenti.max_row]: 
+            cell.fill = PatternFill(start_color=day_colors[day_label], end_color=day_colors[day_label], fill_type="solid")
+    
+    # Riga vuota
+    ws_docenti.append([""] * (len(teachers) + 1))
+    
+    # Riga totali per docenti
+    log_messages.append("🧮 Calcolo totali docenti...")
+    totals_row = ["TOTALE"]
+    for t in teachers:
+        # Calcola ore di lezione
+        lesson_hours = sum(solver.Value(x.get((cl, day, s_idx, t), 0)) * units_to_hours(u) for cl in CLASSI for day in GIORNI for s_idx, (_, _, u) in enumerate(class_slots[cl][day]))
+        # Calcola ore di copertura
+        copertura_hours = sum(solver.Value(var) * units_to_hours(u) for (d, s_idx, tt), (var, sl, fl, u) in copertura_vars.items() if tt == t)
+        total_hours = lesson_hours + copertura_hours
+        totals_row.append(format_duration(total_hours))
+    ws_docenti.append(totals_row)
+    
+    log_messages.append("💾 Salvataggio file Excel...")
     output_filename = "orario_settimanale.xlsx"
     wb.save(output_filename)
-    log_messages.append(f"File '{output_filename}' generato con successo nella cartella dello script.")
+    log_messages.append(f"✅ File '{output_filename}' generato con successo!")
 
+    log_messages.append("📖 Caricamento dati per visualizzazione...")
     df_classi = pd.read_excel(output_filename, sheet_name="Classi", index_col=0, engine='openpyxl')
     df_docenti = pd.read_excel(output_filename, sheet_name="Docenti", index_col=0, engine='openpyxl')
 
+    log_messages.append("🎉 Elaborazione completata con successo!")
     return df_classi, df_docenti, "\n".join(log_messages), diagnostics_string
 
 def run_engine_in_cli_mode():
