@@ -1,7 +1,7 @@
 """
 Eseguibile wrapper per avviare Streamlit in un'app PyInstaller onefile.
 - Include esplicitamente i moduli necessari così PyInstaller li congela.
-- Risolve i percorsi di 'app.py' e 'config.json' anche dentro il bundle (sys._MEIPASS).
+- Risolve i percorsi di 'orario_app.py' e 'config.json' anche dentro il bundle (sys._MEIPASS).
 - Avvia Streamlit sulla prima porta libera, apre il browser di default.
 - In caso di errore, scrive un log accanto all'eseguibile e mostra un messaggio.
 """
@@ -12,7 +12,7 @@ import traceback
 import ctypes
 
 # Import necessari affinché PyInstaller includa questi moduli nel bundle
-import genera_orario_engine  # noqa: F401
+import engine  # noqa: F401
 import utils  # noqa: F401
 import pandas as _pandas  # noqa: F401
 import openpyxl  # noqa: F401

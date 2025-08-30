@@ -102,7 +102,11 @@ pip install -r requirements.txt
 Esegui lo script principale dalla cartella del progetto:
 
 ```bash
-python genera_orario_engine.py
+#(usa config.json nella cartella corrente)
+python engine.py
+
+#oppure specificando il file di configurazione
+python engine.py -c ./config.json
 ```
 
 Oppure avvia l'applicazione completa di interfaccia grafica:
@@ -120,7 +124,7 @@ Il file `orario_settimanale.xlsx` verrà salvato nella cartella corrente. La GUI
 - Solo motore (CLI):
 
 ```bash
-pyinstaller --clean --name "GeneraOrario" --onefile --console --add-data "config.json;." --add-data "utils.py;." --collect-all ortools genera_orario_engine.py
+pyinstaller --clean --name "GeneraOrarioEngine" --onefile --console --add-data "config.json;." --add-data "utils.py;." --collect-all ortools engine.py
 ```
 
 - GUI Streamlit con wrapper dedicato:

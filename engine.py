@@ -831,20 +831,79 @@ def generate_schedule(config):
     return df_classi, df_docenti, "\n".join(log_messages), diagnostics_string
 
 def run_engine_in_cli_mode():
+    import argparse
     from utils import load_config
-    print("Avvio generazione orario in modalità CLI con configurazione da config.json...")
-    config = load_config()
-    if not config: return
+    
+    # Configurazione del parser per gli argomenti da riga di comando
+    parser = argparse.ArgumentParser(
+        description="Generatore di orario scolastico con OR-Tools",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Esempi di utilizzo:
+  python engine.py                           # Usa config.json nella cartella corrente
+  python engine.py --config ./config.json   # Specifica il file di configurazione
+  python engine.py --config /path/to/my_config.json  # Percorso assoluto
+        """
+    )
+    
+    parser.add_argument(
+        '--config', '-c',
+        type=str,
+        default='config.json',
+        help='Percorso del file di configurazione JSON (default: config.json)'
+    )
+    
+    # Parse degli argomenti
+    args = parser.parse_args()
+    
+    print(f"Avvio generazione orario in modalità CLI...")
+    print(f"File di configurazione: {args.config}")
+    
+    # Verifica esistenza file prima di tentare il caricamento
+    if not os.path.isabs(args.config):
+        # Percorso relativo - controlla se esiste nella cartella corrente
+        config_path = os.path.abspath(args.config)
+    else:
+        # Percorso assoluto
+        config_path = args.config
+    
+    if not os.path.exists(config_path):
+        print(f"\n❌ ERRORE: File di configurazione '{config_path}' non trovato!")
+        print("Verifica che il percorso sia corretto e che il file esista.")
+        sys.exit(1)
+    
+    # Carica la configurazione dal file specificato
+    try:
+        config = load_config(args.config)
+        if not config:
+            print("\n❌ ERRORE: Impossibile caricare la configurazione.")
+            sys.exit(1)
+    except Exception as e:
+        print(f"\n❌ ERRORE durante il caricamento della configurazione: {e}")
+        sys.exit(1)
+    
+    print("✅ Configurazione caricata correttamente.")
+    print("🚀 Avvio elaborazione...")
+    
+    # Genera l'orario
     df_classi, df_docenti, log_output, diagnostics_output = generate_schedule(config)
-    print("\n--- LOG DELL'ELABORAZIONE ---")
+    
+    print("\n" + "="*60)
+    print("--- LOG DELL'ELABORAZIONE ---")
+    print("="*60)
     print(log_output)
-    print("\n--- DIAGNOSTICA E VERIFICA VINCOLI ---")
+    
+    print("\n" + "="*60)
+    print("--- DIAGNOSTICA E VERIFICA VINCOLI ---")
+    print("="*60)
     print(diagnostics_output)
+    
     if df_classi is not None:
         print("\n🎉 Orario generato con successo!")
-        print(f"File salvato: {os.path.abspath('orario_settimanale.xlsx')}")
+        print(f"📁 File salvato: {os.path.abspath('orario_settimanale.xlsx')}")
     else:
         print("\n❌ Errore nella generazione dell'orario. Controllare i log sopra.")
+        sys.exit(1)
 
 if __name__ == "__main__":
     run_engine_in_cli_mode()

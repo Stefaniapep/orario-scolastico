@@ -292,7 +292,9 @@
     "SCHIAVONE": {
       "LUN": 9.0,
       "MAR": 9.0,
-      "GIO": 9.0
+      "GIO": 9.0,
+      "MER": 9.0,
+      "VEN": 9.0
     },
     "SIMEONE": {
       "LUN": 11.0
@@ -336,5 +338,5 @@
   "MAX_DAILY_HOURS_PER_CLASS": 3.5,
   "USE_CONSECUTIVE_BLOCKS": true,
   "USE_MAX_ONE_HOLE": true,
-  "USE_OPTIMIZE_HOLES": false
+  "USE_OPTIMIZE_HOLES": true
 }

@@ -6,7 +6,7 @@ import ast
 import os
 
 # Importa il motore di calcolo e i dati di default
-from genera_orario_engine import generate_schedule
+from engine import generate_schedule
 from utils import load_config, save_config
 
 # --- Funzioni di supporto per l'UI ---
