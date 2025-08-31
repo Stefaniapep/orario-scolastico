@@ -135,7 +135,13 @@ jobs:
     - name: Validate config.json
       run: |
         echo "Validating config.json..."
-        python -c "import json, sys; config = json.load(open('config.json', 'r', encoding='utf-8')); print('✅ config.json is valid JSON'); print('   Classes:', len(config.get('CLASSI', []))); print('   Days:', config.get('GIORNI', [])); print('   Teachers:', len(config.get('ASSEGNAZIONE_DOCENTI', {})))" || (echo "❌ config.json validation failed" && exit 1)
+        try {
+          python -c "import json; config = json.load(open('config.json', 'r', encoding='utf-8')); print('✅ config.json is valid JSON'); print('   Classes:', len(config.get('CLASSI', []))); print('   Days:', config.get('GIORNI', [])); print('   Teachers:', len(config.get('ASSEGNAZIONE_DOCENTI', {})))"
+          echo "✅ config.json validation successful"
+        } catch {
+          echo "❌ config.json validation failed"
+          exit 1
+        }
         
     - name: Build executable with PyInstaller
       run: |
