@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('app.py', '.'), ('config.json', '.')]
+datas = [('app.py', '.'), ('config.json', '.'), ('version.py', '.'), ('utils.py', '.'), ('engine.py', '.')]
 binaries = []
 hiddenimports = []
 tmp_ret = collect_all('streamlit')

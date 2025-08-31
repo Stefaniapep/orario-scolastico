@@ -2,7 +2,7 @@
 Versioning information for Genera Orario App
 """
 
-__version__ = "1.0.2"
+__version__ = "1.0.3"
 __app_name__ = "GeneraOrarioApp"
 __description__ = "Generatore di Orari Scolastici"
 __author__ = "Stefania Pepe"

@@ -130,8 +130,6 @@ git push origin main
 
 ---
 
-
-
 ## Installazione da Codice Sorgente
 
 Prerequisiti: `Python 3.8+` e `git`.
@@ -193,7 +191,7 @@ pyinstaller --clean --name "GeneraOrarioEngine" --onefile --console --add-data "
 - GUI Streamlit con wrapper dedicato:
 
 ```bash
-pyinstaller --clean --name "GeneraOrarioApp" --onefile --console --add-data "app.py;." --add-data "config.json;." --collect-all streamlit --collect-all ortools --noconfirm streamlit_wrapper.py
+pyinstaller --clean --name "GeneraOrarioApp" --onefile --console --add-data "app.py;." --add-data "config.json;." --add-data "version.py;." --add-data "utils.py;." --add-data "engine.py;." --collect-all streamlit --collect-all ortools --noconfirm streamlit_wrapper.py
 ```
 
 Il file eseguibile si trova nella cartella `dist/`
