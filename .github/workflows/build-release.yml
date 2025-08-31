@@ -1,5 +1,11 @@
 name: Build and Release GeneraOrarioApp
 
+# Permissions necessari per il workflow
+permissions:
+  contents: write  # Necessario per creare release e tag
+  actions: read    # Necessario per leggere workflow
+  checks: write    # Necessario per aggiornare status check
+
 on:
   push:
     branches: [ main ]
@@ -194,32 +200,14 @@ jobs:
         path: ${{ steps.vars.outputs.artifact_name }}.zip
         retention-days: 90
         
-    - name: Create Git Tag
-      run: |
-        $tagName = "${{ steps.vars.outputs.tag_name }}"
-        $version = "${{ steps.vars.outputs.version }}"
-        
-        # Configure git
-        git config user.name "GitHub Actions"
-        git config user.email "actions@github.com"
-        
-        # Check if tag already exists
-        $existingTag = git tag -l $tagName
-        if ($existingTag) {
-          echo "Tag $tagName already exists, skipping tag creation"
-        } else {
-          # Create and push tag
-          git tag -a $tagName -m "Release version $version - Built by GitHub Actions"
-          git push origin $tagName
-          echo "Created and pushed tag: $tagName"
-        }
-        
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ steps.vars.outputs.tag_name }}
         files: ${{ steps.vars.outputs.artifact_name }}.zip
         name: "GeneraOrarioApp v${{ steps.vars.outputs.version }}"
+        make_latest: true
+        generate_release_notes: false
         body: |
           ## GeneraOrarioApp v${{ steps.vars.outputs.version }}
           

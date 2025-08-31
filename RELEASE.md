@@ -13,21 +13,23 @@ Il sistema di release automatizzato permette di:
 - ✅ Generare artifact scaricabili
 - ✅ Supportare build locali per testing
 
-## � Nuovo Workflow Semplificato
+## Workflow Semplificato
 
 ### **Flusso Automatico:**
+
 1. **Developer** aggiorna versione in `version.py` e fa commit
 2. **GitHub Actions** rileva la modifica e inizia la build
-3. **Se build OK** → Crea automaticamente tag `v{version}` + Release GitHub  
+3. **Se build OK** → Crea automaticamente tag `v{version}` + Release GitHub
 4. **Se build FAIL** → Nessun tag creato
 
 ### **Vantaggi:**
+
 - 🚀 **Un solo comando** per release completa
 - 🛡️ **Sicurezza**: Tag solo se build successful
 - 📝 **Tracciabilità**: Ogni release legata a commit specifico
 - ⚡ **Velocità**: No step manuali dopo il commit
 
-## �📋 Prerequisiti
+## Prerequisiti
 
 ### Per Release Automatiche (GitHub Actions)
 
@@ -44,36 +46,6 @@ Il sistema di release automatizzato permette di:
 ## 🚀 Processo di Release
 
 ### 1. Release Automatica (Consigliata) 🌟
-
-#### Metodo A: Con Script Helper (Consigliato)
-
-**Windows PowerShell:**
-
-```powershell
-# Release completa: versione + commit + push → trigger CI/CD
-.\release.ps1 1.2.0
-
-# Solo commit senza push (per testing)
-.\release.ps1 1.2.0 -CommitOnly
-
-# Solo build locale per test
-.\release.ps1 1.2.0 -BuildOnly
-```
-
-**Linux/Mac Bash:**
-
-```bash
-# Release completa: versione + commit + push → trigger CI/CD  
-./release.sh 1.2.0
-
-# Solo commit senza push (per testing)
-./release.sh 1.2.0 --commit-only
-
-# Solo build locale per test
-./release.sh 1.2.0 --build-only
-```
-
-#### Metodo B: Manuale
 
 ```bash
 # 1. Aggiorna la versione in version.py
@@ -112,7 +84,7 @@ pyinstaller --clean --name "GeneraOrarioApp" --onefile --console \
 3. Inserisci versione (es. `1.2.0`)
 4. Clicca **Run workflow**
 
-## � Output della Pipeline
+## Output della Pipeline
 
 ### **Artifact Generato:**
 
@@ -126,8 +98,9 @@ GeneraOrarioApp-v1.2.0-windows-x64.zip
 ```
 
 ### **GitHub Release Automatica:**
+
 - ✅ **Release Notes** generati automaticamente
-- ✅ **Download link** per l'eseguibile  
+- ✅ **Download link** per l'eseguibile
 - ✅ **Tag automatico** creato dopo build successful
 - ✅ **Metadata completi** (commit, data, size)
 
@@ -141,6 +114,7 @@ GeneraOrarioApp-v1.2.0-windows-x64.zip
 - ✅ **Trigger manuale** → Build di test
 
 **Trigger Intelligente:**
+
 ```yaml
 on:
   push:
@@ -150,8 +124,9 @@ on:
 ```
 
 **Fasi di Build:**
+
 1. **Version Change Detection** - Verifica se righe importanti sono cambiate
-2. **Setup Environment** - Python 3.11, cache dipendenze  
+2. **Setup Environment** - Python 3.11, cache dipendenze
 3. **Build Verification** - Test import e funzionalità
 4. **PyInstaller Build** - Creazione eseguibile Windows
 5. **Package Creation** - ZIP con documentazione
@@ -169,7 +144,7 @@ on:
 ### Incrementi di Versione
 
 - **MAJOR** (`1.0.0` → `2.0.0`): Breaking changes, incompatibilità
-- **MINOR** (`1.0.0` → `1.1.0`): Nuove funzionalità, backward compatible  
+- **MINOR** (`1.0.0` → `1.1.0`): Nuove funzionalità, backward compatible
 - **PATCH** (`1.0.0` → `1.0.1`): Bug fix, hotfix
 
 ### Gestione Automatica
@@ -268,6 +243,7 @@ https://github.com/Stefaniapep/orario-scolastico/actions
 ```
 
 ### Log Debugging
+
 - **Setup Step**: Verifica dipendenze e environment
 - **Version Detection**: Controlla parsing della versione
 - **Build Step**: Output di PyInstaller
@@ -276,6 +252,7 @@ https://github.com/Stefaniapep/orario-scolastico/actions
 ## 📞 Supporto
 
 Per problemi con il processo di release:
+
 1. Controlla i log di GitHub Actions
 2. Verifica la configurazione locale
 3. Consulta la sezione Troubleshooting

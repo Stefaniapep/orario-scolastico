@@ -122,23 +122,19 @@ Esempio di campi principali del `config.json`:
 
 ---
 
-## Download Eseguibile
+## 📥 Download Eseguibile
 
-**Non vuoi installare Python?** Scarica l'eseguibile Windows pronto all'uso!
+**Modo più semplice per utilizzare l'applicazione!** Scarica l'eseguibile Windows pronto all'uso:
 
 [![Download Latest](https://img.shields.io/github/v/release/Stefaniapep/orario-scolastico?label=Download%20Latest&style=for-the-badge&logo=github&color=success)](https://github.com/Stefaniapep/orario-scolastico/releases/latest)
 
-### Istruzioni Download
+### 🚀 Istruzioni Rapide
 
 1. Vai alla pagina [Releases](https://github.com/Stefaniapep/orario-scolastico/releases)
 2. Scarica il file `.zip` più recente (es. `GeneraOrarioApp-v1.2.0-windows-x64.zip`)
 3. Estrai il contenuto in una cartella
 4. Esegui `GeneraOrarioApp.exe`
 5. Il browser si aprirà automaticamente con l'interfaccia!
-
-**Requisiti**: Solo Windows 10/11 (64-bit) - nessuna installazione Python necessaria.
-
----
 
 ## Installazione da Codice Sorgente
 
@@ -209,6 +205,7 @@ pyinstaller --clean --name "GeneraOrarioApp" --onefile --console --add-data "app
 Il tuo file eseguibile si trova all'interno della cartella dist
 
 ---
+
 
 ### 📊 Foglio Classi (estratto)
 
