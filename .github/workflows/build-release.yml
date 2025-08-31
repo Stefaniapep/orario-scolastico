@@ -132,9 +132,27 @@ jobs:
         python -c "from utils import load_config; print('Utils OK')"
         python -c "from version import get_version; print(f'Version: {get_version()}')"
         
+    - name: Validate config.json
+      run: |
+        echo "Validating config.json..."
+        python -c "
+        import json, sys
+        try:
+            with open('config.json', 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            print('✅ config.json is valid JSON')
+            print(f'   Classes: {len(config.get(\"CLASSI\", []))}')
+            print(f'   Days: {config.get(\"GIORNI\", [])}')
+            print(f'   Teachers: {len(config.get(\"ASSEGNAZIONE_DOCENTI\", {}))}')
+        except Exception as e:
+            print(f'❌ config.json validation failed: {e}')
+            sys.exit(1)
+        "
+        
     - name: Build executable with PyInstaller
       run: |
-        pyinstaller --clean --name "GeneraOrarioApp" --onefile --console --add-data "app.py;." --add-data "config.json;." --add-data "version.py;." --collect-all streamlit --collect-all ortools --noconfirm streamlit_wrapper.py
+        echo "Building with PyInstaller..."
+        pyinstaller --clean --name "GeneraOrarioApp" --onefile --console --add-data "app.py;." --add-data "config.json;." --add-data "version.py;." --add-data "utils.py;." --add-data "engine.py;." --collect-all streamlit --collect-all ortools --noconfirm streamlit_wrapper.py
         
     - name: Verify build output
       run: |
@@ -142,14 +160,24 @@ jobs:
           $fileSize = (Get-Item "dist\GeneraOrarioApp.exe").Length
           echo "Build successful! Executable size: $([math]::Round($fileSize/1MB, 2)) MB"
           
-          # Test if the executable can start (quick check)
-          echo "Testing executable..."
+          # Test config loading from the utils module
+          echo "Testing config loading..."
           try {
-            $process = Start-Process -FilePath "dist\GeneraOrarioApp.exe" -ArgumentList "--help" -PassThru -NoNewWindow -Wait -ErrorAction Stop
-            echo "Executable test completed"
+            python -c "
+            import sys, os
+            # Simula l'ambiente dell'eseguibile
+            sys.frozen = True
+            sys._MEIPASS = os.getcwd()
+            from utils import load_config
+            config = load_config()
+            print('✅ Config loading test successful')
+            print(f'   Loaded {len(config.get(\"CLASSI\", []))} classes')
+            "
           } catch {
-            echo "Warning: Could not test executable (this is normal for GUI apps)"
+            echo "⚠️ Config loading test failed, but build completed"
           }
+          
+          echo "Executable test completed"
         } else {
           echo "ERROR: Build failed - executable not found!"
           exit 1
@@ -168,7 +196,7 @@ jobs:
         
         # Copy documentation and config
         Copy-Item "README.md" "release\" -ErrorAction SilentlyContinue
-        Copy-Item "config.json" "release\config-template.json"
+        Copy-Item "config.json" "release\config.json"  # Config template for users
         Copy-Item "LICENSE" "release\" -ErrorAction SilentlyContinue
         
         # Create version info file

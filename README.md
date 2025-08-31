@@ -7,8 +7,6 @@
 [![Python Version](https://img.shields.io/badge/python-3.8%2B-blue?logo=python)](https://www.python.org/)
 [![Streamlit](https://img.shields.io/badge/streamlit-1.28%2B-red?logo=streamlit)](https://streamlit.io/)
 
-> **🚀 Rilasci Automatici**: Questo progetto utilizza GitHub Actions per build e release automatiche. Ogni modifica alla versione in `version.py` genera automaticamente un nuovo rilascio con eseguibile Windows pronto all'uso!
-
 Genera automaticamente l'orario settimanale per un insieme di classi e docenti, rispettando vincoli generici e specifici configurabili tramite file `config.json` o tramite GUI (Streamlit).
 
 Caratteristiche principali dell'engine:
@@ -51,6 +49,38 @@ Output su Excel (`orario_settimanale.xlsx`):
   - Valori: nome classe assegnata (es. `1A`), oppure `COPERTURA`, oppure `BUCO` per indicare un buco orario.
 
 Nota: La GUI valida e salva automaticamente la configurazione in `config.json` quando si preme "GENERA ORARIO". Il salvataggio avviene accanto all'eseguibile (se in versione compilata) o accanto ai sorgenti (in sviluppo). In lettura, se esistono sia un `config.json` esterno sia quello nel bundle PyInstaller, ha priorità quello esterno.
+
+---
+
+### 📊 Foglio Classi (estratto)
+
+| Ora  | 1A        | 1B        | 2A        | … |
+| ---- | --------- | --------- | --------- | -- |
+| Lun1 | MAT(DOC1) | ITA(DOC") | ING(DOC3) | … |
+| Lun2 | ING(DOC3) | REL(DOC4) | MAT(DOC1) | … |
+
+### 📊 Foglio Docenti (estratto)
+
+| Ora  | Doc1     | Doc2     | Doc3     | … |
+| ---- | -------- | -------- | -------- | -- |
+| Lun1 | MAT (1A) | ITA (1B) | ING (2A) | … |
+| Lun2 | BUCO     | COP      | ING (3B) | … |
+
+---
+
+## 📥 Download Eseguibile
+
+**Modo più semplice per utilizzare l'applicazione!** Scarica l'eseguibile Windows pronto all'uso:
+
+[![Download Latest](https://img.shields.io/github/v/release/Stefaniapep/orario-scolastico?label=Download%20Latest&style=for-the-badge&logo=github&color=success)](https://github.com/Stefaniapep/orario-scolastico/releases/latest)
+
+### 🚀 Istruzioni Rapide
+
+1. Vai alla pagina [Releases](https://github.com/Stefaniapep/orario-scolastico/releases)
+2. Scarica il file `.zip` più recente (es. `GeneraOrarioApp-v1.2.0-windows-x64.zip`)
+3. Estrai il contenuto in una cartella
+4. Esegui `GeneraOrarioApp.exe`
+5. Il browser si aprirà automaticamente con l'interfaccia!
 
 ---
 
@@ -100,41 +130,7 @@ git push origin main
 
 ---
 
-## Dati personalizzabili
 
-Esempio di campi principali del `config.json`:
-
--`CLASSI`: lista di classi (es. `["1A", "1B", "2A", ...]`).
-
--`GIORNI`: lista dei giorni (es. `["LUN", "MAR", "MER", "GIO", "VEN"]`).
-
--`SLOT_1`/`SLOT_2`/`SLOT_3`: liste di coppie `["H:MM-H:MM", durata_ore]` (la durata può essere anche 0.5).
-
--`ASSEGNAZIONE_SLOT`: per ogni classe e giorno, quale insieme slot usare (`SLOT_1`/`SLOT_2`/`SLOT_3`).
-
--`ORE_SETTIMANALI_CLASSI`: ore richieste per ogni classe.
-
--`MAX_ORE_SETTIMANALI_DOCENTI`: limite ore totali per docente (lezioni + copertura).
-
--`ASSEGNAZIONE_DOCENTI`: ore per docente su ciascuna classe, e opzionale `copertura`.
-
-- Vincoli specifici/generici come descritti sopra.
-
----
-
-## 📥 Download Eseguibile
-
-**Modo più semplice per utilizzare l'applicazione!** Scarica l'eseguibile Windows pronto all'uso:
-
-[![Download Latest](https://img.shields.io/github/v/release/Stefaniapep/orario-scolastico?label=Download%20Latest&style=for-the-badge&logo=github&color=success)](https://github.com/Stefaniapep/orario-scolastico/releases/latest)
-
-### 🚀 Istruzioni Rapide
-
-1. Vai alla pagina [Releases](https://github.com/Stefaniapep/orario-scolastico/releases)
-2. Scarica il file `.zip` più recente (es. `GeneraOrarioApp-v1.2.0-windows-x64.zip`)
-3. Estrai il contenuto in una cartella
-4. Esegui `GeneraOrarioApp.exe`
-5. Il browser si aprirà automaticamente con l'interfaccia!
 
 ## Installazione da Codice Sorgente
 
@@ -164,8 +160,6 @@ venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
----
-
 ## ▶️ Esecuzione
 
 Esegui lo script principale dalla cartella del progetto:
@@ -186,9 +180,9 @@ streamlit run app.py
 
 Il file `orario_settimanale.xlsx` verrà salvato nella cartella corrente. La GUI effettua la validazione dei dati e salva `config.json` alla pressione del tasto "GENERA ORARIO".
 
----
-
 ## 📦 Build eseguibili (Windows)
+
+**Nota:** La build automatica è gestita da GitHub Actions. Questi comandi sono per sviluppatori che vogliono compilare localmente.
 
 - Solo motore (CLI):
 
@@ -202,21 +196,4 @@ pyinstaller --clean --name "GeneraOrarioEngine" --onefile --console --add-data "
 pyinstaller --clean --name "GeneraOrarioApp" --onefile --console --add-data "app.py;." --add-data "config.json;." --collect-all streamlit --collect-all ortools --noconfirm streamlit_wrapper.py
 ```
 
-Il tuo file eseguibile si trova all'interno della cartella dist
-
----
-
-
-### 📊 Foglio Classi (estratto)
-
-| Ora  | 1A        | 1B        | 2A        | … |
-| ---- | --------- | --------- | --------- | -- |
-| Lun1 | MAT(DOC1) | ITA(DOC") | ING(DOC3) | … |
-| Lun2 | ING(DOC3) | REL(DOC4) | MAT(DOC1) | … |
-
-### 📊 Foglio Docenti (estratto)
-
-| Ora  | Doc1     | Doc2     | Doc3     | … |
-| ---- | -------- | -------- | -------- | -- |
-| Lun1 | MAT (1A) | ITA (1B) | ING (2A) | … |
-| Lun2 | BUCO     | COP      | ING (3B) | … |
+Il file eseguibile si trova nella cartella `dist/`
