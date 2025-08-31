@@ -54,7 +54,7 @@ Nota: La GUI valida e salva automaticamente la configurazione in `config.json` q
 
 ---
 
-## � Sistema di Release Automatico
+## Sistema di Release Automatico
 
 Questo progetto utilizza **GitHub Actions** per automatizzare completamente il processo di build e release:
 
@@ -100,7 +100,7 @@ git push origin main
 
 ---
 
-## �🔧 Dati personalizzabili
+## Dati personalizzabili
 
 Esempio di campi principali del `config.json`:
 
@@ -122,7 +122,7 @@ Esempio di campi principali del `config.json`:
 
 ---
 
-## � Download Eseguibile
+## Download Eseguibile
 
 **Non vuoi installare Python?** Scarica l'eseguibile Windows pronto all'uso!
 
@@ -140,7 +140,7 @@ Esempio di campi principali del `config.json`:
 
 ---
 
-## �🚀 Installazione da Codice Sorgente
+## Installazione da Codice Sorgente
 
 Prerequisiti: `Python 3.8+` e `git`.
 

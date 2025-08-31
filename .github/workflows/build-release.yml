@@ -3,8 +3,7 @@ name: Build and Release GeneraOrarioApp
 on:
   push:
     branches: [ main ]
-    paths: 
-      - 'version.py'  # Trigger quando cambia version.py
+    # Rimuoviamo il paths filter - controlleremo nel workflow
   workflow_dispatch:  # Allow manual trigger
     inputs:
       version:
@@ -36,20 +35,28 @@ jobs:
           exit 0
         fi
         
-        # Get the changed lines in version.py
+        # Get the changed files in this push
+        echo "Files changed in this push:"
+        git diff --name-only HEAD~1 HEAD
+        
+        # Check if version.py was modified
         if git diff HEAD~1 HEAD --name-only | grep -q "version.py"; then
-          echo "version.py was modified"
+          echo "version.py was modified in this commit"
           
-          # Check if __version__, __app_name__, __description__, or __author__ changed
-          changed_lines=$(git diff HEAD~1 HEAD version.py | grep "^[+-]" | grep -E "__version__|__app_name__|__description__|__author__")
+          # Show the actual changes in version.py
+          echo "Changes in version.py:"
+          git diff HEAD~1 HEAD version.py
+          
+          # Check if version-related lines changed (more permissive check)
+          changed_lines=$(git diff HEAD~1 HEAD version.py | grep "^[+-]" | grep -v "^+++\|^---")
           
           if [ -n "$changed_lines" ]; then
-            echo "Version-related lines changed:"
+            echo "Version file has substantive changes:"
             echo "$changed_lines"
             echo "should-build=true" >> $GITHUB_OUTPUT
             echo "version-changed=true" >> $GITHUB_OUTPUT
           else
-            echo "version.py changed but no version-related lines modified"
+            echo "version.py changed but no substantive changes found"
             echo "should-build=false" >> $GITHUB_OUTPUT
             echo "version-changed=false" >> $GITHUB_OUTPUT
           fi
