@@ -135,19 +135,7 @@ jobs:
     - name: Validate config.json
       run: |
         echo "Validating config.json..."
-        python -c "
-        import json, sys
-        try:
-            with open('config.json', 'r', encoding='utf-8') as f:
-                config = json.load(f)
-            print('✅ config.json is valid JSON')
-            print(f'   Classes: {len(config.get(\"CLASSI\", []))}')
-            print(f'   Days: {config.get(\"GIORNI\", [])}')
-            print(f'   Teachers: {len(config.get(\"ASSEGNAZIONE_DOCENTI\", {}))}')
-        except Exception as e:
-            print(f'❌ config.json validation failed: {e}')
-            sys.exit(1)
-        "
+        python -c "import json, sys; config = json.load(open('config.json', 'r', encoding='utf-8')); print('✅ config.json is valid JSON'); print('   Classes:', len(config.get('CLASSI', []))); print('   Days:', config.get('GIORNI', [])); print('   Teachers:', len(config.get('ASSEGNAZIONE_DOCENTI', {})))" || (echo "❌ config.json validation failed" && exit 1)
         
     - name: Build executable with PyInstaller
       run: |
@@ -163,16 +151,7 @@ jobs:
           # Test config loading from the utils module
           echo "Testing config loading..."
           try {
-            python -c "
-            import sys, os
-            # Simula l'ambiente dell'eseguibile
-            sys.frozen = True
-            sys._MEIPASS = os.getcwd()
-            from utils import load_config
-            config = load_config()
-            print('✅ Config loading test successful')
-            print(f'   Loaded {len(config.get(\"CLASSI\", []))} classes')
-            "
+            python -c "import sys, os; sys.frozen = True; sys._MEIPASS = os.getcwd(); from utils import load_config; config = load_config(); print('✅ Config loading test successful'); print('   Loaded', len(config.get('CLASSI', [])), 'classes')"
           } catch {
             echo "⚠️ Config loading test failed, but build completed"
           }

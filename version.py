@@ -19,3 +19,4 @@ def get_full_version():
         "description": __description__,
         "author": __author__
     }
+
